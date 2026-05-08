@@ -57,6 +57,24 @@ class CreateCheckoutSession(BaseModel):
     price_id: str = Field(..., description="Stripe Price ID")
 
 
+# --- Schemas for Auth ---
+
+class RegisterRequest(BaseModel):
+    email: str
+    password: str = Field(..., min_length=6)
+    name: str | None = None
+
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    user: UserResponse
+
+
 # --- Pricing constants ---
 
 CREDIT_COSTS: dict[str, float] = {

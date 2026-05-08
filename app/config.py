@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     AWS_S3_BUCKET: str = "ai-toolbox-files"
     STRIPE_SECRET_KEY: str = ""
     STRIPE_WEBHOOK_SECRET: str = ""
+    JWT_SECRET_KEY: str = "change-me-in-production"
     FRONTEND_URL: str = "http://localhost:3000"
 
     class Config:

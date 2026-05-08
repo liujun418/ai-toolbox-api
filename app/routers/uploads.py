@@ -3,11 +3,12 @@
 import uuid
 from datetime import datetime, UTC
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import Task, TaskStatus, User
+from app.routers.auth import get_current_user
 from app.schemas import TaskResponse, CREDIT_COSTS
 from app.services.storage import (
     generate_upload_key,
@@ -27,10 +28,10 @@ router = APIRouter(prefix="/api/upload", tags=["upload"])
 async def upload_and_process(
     tool_type: str,
     file: UploadFile = File(...),
-    user_id: str = Form(...),
+    user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Upload a file and start AI processing.
+    """Upload a file and start AI processing. Requires authentication.
 
     Supported tool_types: background-remover, avatar-generator
     """
@@ -38,11 +39,7 @@ async def upload_and_process(
     if tool_type not in CREDIT_COSTS:
         raise HTTPException(status_code=400, detail=f"Unknown tool type: {tool_type}")
 
-    # Validate user exists and has enough credits
-    user = db.query(User).filter(User.id == user_id).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-
+    # Validate user has enough credits
     credits_needed = CREDIT_COSTS[tool_type]
     if user.credits < credits_needed:
         raise HTTPException(
@@ -56,7 +53,7 @@ async def upload_and_process(
         raise HTTPException(status_code=400, detail="Empty file")
 
     # Upload to storage
-    upload_key = generate_upload_key(file.filename or "upload.png", user_id)
+    upload_key = generate_upload_key(file.filename or "upload.png", user.id)
     content_type = file.content_type or "image/png"
     await upload_file(file_bytes, upload_key, content_type)
 
@@ -64,7 +61,7 @@ async def upload_and_process(
     task_id = str(uuid.uuid4())
     task = Task(
         id=task_id,
-        user_id=user_id,
+        user_id=user.id,
         tool_type=tool_type,
         status=TaskStatus.PROCESSING,
         input_file_url=upload_key,
