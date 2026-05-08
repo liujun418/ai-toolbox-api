@@ -1,4 +1,5 @@
 from datetime import datetime, UTC
+from enum import Enum
 
 from sqlalchemy import Column, DateTime, Enum as SAEnum, Float, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
