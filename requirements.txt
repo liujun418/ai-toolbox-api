@@ -3,7 +3,7 @@ uvicorn[standard]==0.34.0
 sqlalchemy==2.0.37
 psycopg2-binary==2.9.10
 alembic==1.14.1
-replicate==1.0.4
+rembg[cpu]==2.0.60
 boto3==1.36.0
 python-multipart==0.0.20
 python-dotenv==1.0.1

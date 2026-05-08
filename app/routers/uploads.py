@@ -10,15 +10,12 @@ from app.database import get_db
 from app.models import Task, TaskStatus, User
 from app.routers.auth import get_current_user
 from app.schemas import TaskResponse, CREDIT_COSTS
+from app.services.image_processing import run_background_remover_local
 from app.services.storage import (
     generate_upload_key,
     generate_download_key,
     upload_file,
     generate_presigned_url,
-)
-from app.services.replicate_service import (
-    run_background_remover,
-    run_avatar_generation,
 )
 
 router = APIRouter(prefix="/api/upload", tags=["upload"])
@@ -74,18 +71,18 @@ async def upload_and_process(
     # Process based on tool type
     try:
         if tool_type == "background-remover":
-            output = await run_background_remover(upload_key)
-            # Save output
-            # For now we'll store the replicate output URL directly
-            task.output_file_url = output
+            output_bytes = await run_background_remover_local(file_bytes)
+            # Upload result to R2
+            output_key = generate_download_key(user.id, task_id)
+            await upload_file(output_bytes, output_key, "image/png")
+            # Generate presigned URL
+            task.output_file_url = generate_presigned_url(output_key)
             task.status = TaskStatus.COMPLETED
             task.completed_at = datetime.now(UTC)
 
         elif tool_type == "avatar-generator":
-            outputs = await run_avatar_generation(upload_key)
-            task.output_file_url = outputs[0] if outputs else None
-            task.status = TaskStatus.COMPLETED
-            task.completed_at = datetime.now(UTC)
+            # TODO: Implement avatar generation with local model or Replicate
+            raise NotImplementedError("Avatar generator is coming soon")
 
         # Deduct credits
         user.credits -= credits_needed
