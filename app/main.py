@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.routers import auth, tasks, uploads
+from app.routers import auth, tasks, uploads, payments
 
 app = FastAPI(
     title="AI ToolBox API",
@@ -23,6 +23,7 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(tasks.router)
 app.include_router(uploads.router)
+app.include_router(payments.router)
 
 
 @app.get("/")
