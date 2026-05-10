@@ -56,7 +56,7 @@ async def run_avatar_generation(
     client = get_replicate()
     # SDXL with a cartoon/anime LoRA
     output = client.run(
-        "stability-ai/sdxl:778a0147fb3535e38c831e5d42e0fa29e3c2c8c4e3b4b4b1b4b4b4b4b4b4b4b",
+        "stability-ai/sdxl:7762fd07cf82c948538e41f63f77d685e02b063e37e496e96eefd46c929f9bdc",
         input={
             "prompt": f"cartoon avatar portrait, anime style, vibrant colors, {style}",
             "image": image_url,
@@ -97,7 +97,7 @@ async def run_style_transfer(image_url: str, style: str = "oil-painting") -> str
     prompt = style_prompts.get(style, style_prompts["oil-painting"])
 
     output = client.run(
-        "stability-ai/sdxl:778a0147fb3535e38c831e5d42e0fa29e3c2c8c4e3b4b4b1b4b4b4b4b4b4b4b",
+        "stability-ai/sdxl:7762fd07cf82c948538e41f63f77d685e02b063e37e496e96eefd46c929f9bdc",
         input={
             "prompt": prompt,
             "image": image_url,
@@ -123,7 +123,7 @@ async def run_text_polish(text: str, mode: str = "polish") -> str:
     instruction = mode_instructions.get(mode, mode_instructions["polish"])
 
     output = client.run(
-        "meta/llama-3-70b-instruct:2d3e2076d4a9e139983e4f3a4912292e0a72e2d0c5d3e0e8e0c3a7f3a7e3b2c1",
+        "meta/meta-llama-3-70b-instruct:fbfb20b472b2f3bdd101412a9f70a0ed4fc0ced78a77ff00970ee7a2383c575d",
         input={
             "prompt": f"{instruction}\n\nText: {text}\n\nResult:",
             "max_tokens": 4096,
