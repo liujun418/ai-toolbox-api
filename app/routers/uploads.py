@@ -20,6 +20,7 @@ from app.services.storage import (
     upload_file,
     generate_presigned_url,
 )
+from app.services.pdf_service import convert_pdf_to_word, get_pdf_page_count
 from app.services.replicate_service import (
     run_avatar_generation,
     run_background_remover,
@@ -163,6 +164,38 @@ async def upload_and_process(
             # Save text output to storage
             output_key = generate_download_key(user.id, task_id, "txt")
             await upload_file(output.encode("utf-8"), output_key, "text/plain")
+            task.output_file_url = generate_presigned_url(output_key, expires_in=3600)
+            task.status = TaskStatus.COMPLETED
+            task.completed_at = datetime.now(UTC)
+
+        elif tool_type == "pdf-to-word":
+            page_count = await get_pdf_page_count(file_bytes)
+            if page_count <= 5:
+                actual_cost = 1
+            elif page_count <= 20:
+                actual_cost = 2
+            else:
+                actual_cost = 3
+
+            if user.credits < actual_cost:
+                raise HTTPException(
+                    status_code=402,
+                    detail=f"Not enough credits. This PDF has {page_count} pages "
+                    f"and requires {actual_cost} credits, but you have {user.credits}.",
+                )
+
+            task.credits_cost = actual_cost
+            credits_needed = actual_cost
+
+            docx_bytes = await convert_pdf_to_word(
+                file_bytes, file.filename or "document.pdf"
+            )
+            output_key = generate_download_key(user.id, task_id, "docx")
+            await upload_file(
+                docx_bytes,
+                output_key,
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            )
             task.output_file_url = generate_presigned_url(output_key, expires_in=3600)
             task.status = TaskStatus.COMPLETED
             task.completed_at = datetime.now(UTC)
