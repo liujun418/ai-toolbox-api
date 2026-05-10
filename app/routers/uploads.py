@@ -64,13 +64,10 @@ async def upload_and_process(
     if not file_bytes:
         raise HTTPException(status_code=400, detail="Empty file")
 
-    # Upload to storage
+    # Create task first (so we can track failures)
+    task_id = str(uuid.uuid4())
     upload_key = generate_upload_key(file.filename or "upload.png", user.id)
     content_type = file.content_type or "image/png"
-    await upload_file(file_bytes, upload_key, content_type)
-
-    # Create task
-    task_id = str(uuid.uuid4())
     task = Task(
         id=task_id,
         user_id=user.id,
@@ -83,11 +80,12 @@ async def upload_and_process(
     db.add(task)
     db.commit()
 
-    # Generate presigned URL so Replicate can access the uploaded file
-    image_url = generate_presigned_url(upload_key, expires_in=3600)
-
-    # Process based on tool type
+    # Wrap all external calls so failures are caught and recorded
     try:
+        # Upload to storage
+        await upload_file(file_bytes, upload_key, content_type)
+        image_url = generate_presigned_url(upload_key, expires_in=3600)
+
         if tool_type == "background-remover":
             output = await run_background_remover(image_url)
             task.output_file_url = output
