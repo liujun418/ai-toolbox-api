@@ -83,10 +83,13 @@ async def upload_and_process(
     db.add(task)
     db.commit()
 
+    # Generate presigned URL so Replicate can access the uploaded file
+    image_url = generate_presigned_url(upload_key, expires_in=3600)
+
     # Process based on tool type
     try:
         if tool_type == "background-remover":
-            output = await run_background_remover(upload_key)
+            output = await run_background_remover(image_url)
             task.output_file_url = output
             task.status = TaskStatus.COMPLETED
             task.completed_at = datetime.now(UTC)
@@ -99,14 +102,14 @@ async def upload_and_process(
             mask_buffer = io_module.BytesIO()
             mask.save(mask_buffer, format="PNG")
             await upload_file(mask_buffer.getvalue(), mask_key, "image/png")
-            output = await run_watermark_removal(upload_key, mask_key)
+            output = await run_watermark_removal(image_url, generate_presigned_url(mask_key, expires_in=3600))
             task.output_file_url = output
             task.status = TaskStatus.COMPLETED
             task.completed_at = datetime.now(UTC)
 
         elif tool_type == "photo-restorer":
             colorize = "colorize" in prompt.lower() if prompt else False
-            output = await run_photo_restoration(upload_key, colorize)
+            output = await run_photo_restoration(image_url, colorize)
             task.output_file_url = output
             task.status = TaskStatus.COMPLETED
             task.completed_at = datetime.now(UTC)
@@ -118,7 +121,7 @@ async def upload_and_process(
                     if s in prompt.lower():
                         style = s
                         break
-            outputs = await run_avatar_generation(upload_key, style)
+            outputs = await run_avatar_generation(image_url, style)
             task.output_file_url = outputs[0] if isinstance(outputs, list) and outputs else str(outputs)
             task.status = TaskStatus.COMPLETED
             task.completed_at = datetime.now(UTC)
@@ -128,7 +131,7 @@ async def upload_and_process(
             scale = "2x"
             if prompt and "4x" in prompt:
                 scale = "4x"
-            output = await run_image_upscaler(upload_key, scale)
+            output = await run_image_upscaler(image_url, scale)
             task.output_file_url = output
             task.status = TaskStatus.COMPLETED
             task.completed_at = datetime.now(UTC)
@@ -141,7 +144,7 @@ async def upload_and_process(
                     if s in prompt.lower():
                         style = s
                         break
-            output = await run_style_transfer(upload_key, style)
+            output = await run_style_transfer(image_url, style)
             task.output_file_url = output
             task.status = TaskStatus.COMPLETED
             task.completed_at = datetime.now(UTC)
