@@ -82,5 +82,8 @@ CREDIT_COSTS: dict[str, float] = {
     "background-remover": 2,
     "watermark-remover": 3,
     "photo-restorer": 5,
-    "pdf-to-word": 1,  # +1 if >10 pages (handled dynamically)
+    "pdf-to-word": 1,
+    "image-upscaler": 2,
+    "style-transfer": 4,
+    "text-polish": 3,
 }

@@ -1,9 +1,10 @@
 """File upload and AI processing endpoints."""
 
+import json
 import uuid
 from datetime import datetime, UTC
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -18,6 +19,9 @@ from app.services.storage import (
 )
 from app.services.replicate_service import (
     run_background_remover,
+    run_image_upscaler,
+    run_style_transfer,
+    run_text_polish,
 )
 
 router = APIRouter(prefix="/api/upload", tags=["upload"])
@@ -27,12 +31,14 @@ router = APIRouter(prefix="/api/upload", tags=["upload"])
 async def upload_and_process(
     tool_type: str,
     file: UploadFile = File(...),
+    prompt: str | None = Form(default=None),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Upload a file and start AI processing. Requires authentication.
 
-    Supported tool_types: background-remover, avatar-generator
+    Supported tool_types: background-remover, avatar-generator, image-upscaler,
+    style-transfer, text-polish
     """
     # Validate tool type
     if tool_type not in CREDIT_COSTS:
@@ -81,6 +87,51 @@ async def upload_and_process(
         elif tool_type == "avatar-generator":
             # TODO: Implement with Replicate or local model
             raise NotImplementedError("Avatar generator is coming soon")
+
+        elif tool_type == "image-upscaler":
+            # Parse scale from prompt: "Upscale image by 2x. ..." or "Upscale image by 4x. ..."
+            scale = "2x"
+            if prompt and "4x" in prompt:
+                scale = "4x"
+            output = await run_image_upscaler(upload_key, scale)
+            task.output_file_url = output
+            task.status = TaskStatus.COMPLETED
+            task.completed_at = datetime.now(UTC)
+
+        elif tool_type == "style-transfer":
+            # Parse style from prompt
+            style = "oil-painting"
+            if prompt:
+                for s in ["oil-painting", "watercolor", "anime", "sketch"]:
+                    if s in prompt.lower():
+                        style = s
+                        break
+            output = await run_style_transfer(upload_key, style)
+            task.output_file_url = output
+            task.status = TaskStatus.COMPLETED
+            task.completed_at = datetime.now(UTC)
+
+        elif tool_type == "text-polish":
+            # Parse mode and text from prompt
+            mode = "polish"
+            text_content = ""
+            if prompt:
+                # Format: "Mode: polish. Text: <actual text>"
+                mode_part, _, text_part = prompt.partition(". Text: ")
+                mode = mode_part.replace("Mode: ", "").strip().lower()
+                text_content = text_part
+
+            if not text_content:
+                # Fallback: read text from uploaded file
+                text_content = file_bytes.decode("utf-8", errors="replace")
+
+            output = await run_text_polish(text_content, mode)
+            # Save text output to storage
+            output_key = generate_download_key(user.id, task_id, "txt")
+            await upload_file(output.encode("utf-8"), output_key, "text/plain")
+            task.output_file_url = generate_presigned_url(output_key, expires_in=3600)
+            task.status = TaskStatus.COMPLETED
+            task.completed_at = datetime.now(UTC)
 
         # Deduct credits
         user.credits -= credits_needed
