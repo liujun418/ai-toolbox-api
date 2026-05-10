@@ -1,8 +1,11 @@
 """File upload and AI processing endpoints."""
 
+import io as io_module
 import json
 import uuid
 from datetime import datetime, UTC
+
+from PIL import Image
 
 from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
@@ -18,10 +21,13 @@ from app.services.storage import (
     generate_presigned_url,
 )
 from app.services.replicate_service import (
+    run_avatar_generation,
     run_background_remover,
     run_image_upscaler,
+    run_photo_restoration,
     run_style_transfer,
     run_text_polish,
+    run_watermark_removal,
 )
 
 router = APIRouter(prefix="/api/upload", tags=["upload"])
@@ -37,8 +43,8 @@ async def upload_and_process(
 ):
     """Upload a file and start AI processing. Requires authentication.
 
-    Supported tool_types: background-remover, avatar-generator, image-upscaler,
-    style-transfer, text-polish
+    Supported tool_types: background-remover, watermark-remover, photo-restorer,
+    avatar-generator, pdf-to-word, image-upscaler, style-transfer, text-polish
     """
     # Validate tool type
     if tool_type not in CREDIT_COSTS:
@@ -84,9 +90,37 @@ async def upload_and_process(
             task.status = TaskStatus.COMPLETED
             task.completed_at = datetime.now(UTC)
 
+        elif tool_type == "watermark-remover":
+            # Generate white mask for LaMa inpainting (whole image = inpaint area)
+            mask_key = f"masks/{user.id}/{uuid.uuid4().hex}.png"
+            img = Image.open(io_module.BytesIO(file_bytes))
+            mask = Image.new("L", img.size, 255)
+            mask_buffer = io_module.BytesIO()
+            mask.save(mask_buffer, format="PNG")
+            await upload_file(mask_buffer.getvalue(), mask_key, "image/png")
+            output = await run_watermark_removal(upload_key, mask_key)
+            task.output_file_url = output
+            task.status = TaskStatus.COMPLETED
+            task.completed_at = datetime.now(UTC)
+
+        elif tool_type == "photo-restorer":
+            colorize = "colorize" in prompt.lower() if prompt else False
+            output = await run_photo_restoration(upload_key, colorize)
+            task.output_file_url = output
+            task.status = TaskStatus.COMPLETED
+            task.completed_at = datetime.now(UTC)
+
         elif tool_type == "avatar-generator":
-            # TODO: Implement with Replicate or local model
-            raise NotImplementedError("Avatar generator is coming soon")
+            style = "cartoon"
+            if prompt:
+                for s in ["cartoon", "anime", "professional", "pixel-art", "watercolor", "oil-painting"]:
+                    if s in prompt.lower():
+                        style = s
+                        break
+            outputs = await run_avatar_generation(upload_key, style)
+            task.output_file_url = outputs[0] if isinstance(outputs, list) and outputs else str(outputs)
+            task.status = TaskStatus.COMPLETED
+            task.completed_at = datetime.now(UTC)
 
         elif tool_type == "image-upscaler":
             # Parse scale from prompt: "Upscale image by 2x. ..." or "Upscale image by 4x. ..."
