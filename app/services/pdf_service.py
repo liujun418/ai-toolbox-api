@@ -30,15 +30,15 @@ async def convert_pdf_to_word(pdf_file_bytes: bytes, filename: str) -> bytes:
     for page_num in range(len(pdf)):
         page = pdf[page_num]
 
-        # Extract text blocks with position info
+        # Method 1: structured dict extraction (preserves formatting)
         blocks = page.get_text("dict")["blocks"]
+        has_content = False
 
         for block in blocks:
             if block["type"] == 0:  # Text block
                 for line in block["lines"]:
                     text = "".join([span["text"] for span in line["spans"]])
                     if text.strip():
-                        # Detect bold from first span
                         first_span = line["spans"][0]
                         font_size = first_span.get("size", 11)
                         is_bold = "Bold" in first_span.get("font", "")
@@ -47,15 +47,33 @@ async def convert_pdf_to_word(pdf_file_bytes: bytes, filename: str) -> bytes:
                         run = p.add_run(text)
                         run.font.size = Pt(font_size)
                         run.bold = is_bold
+                        has_content = True
 
             elif block["type"] == 1:  # Image block
-                # Extract and embed images
                 for img_info in block.get("images", []):
                     try:
-                        img_bytes = img_info["image"]
-                        docx.add_picture(io.BytesIO(img_bytes), width=Inches(5))
+                        docx.add_picture(io.BytesIO(img_info["image"]), width=Inches(5))
+                        has_content = True
                     except Exception:
                         pass
+
+        # Method 2: fallback plain text if dict extraction found nothing
+        if not has_content:
+            plain_text = page.get_text("text")
+            if plain_text.strip():
+                for line in plain_text.split("\n"):
+                    stripped = line.strip()
+                    if stripped:
+                        docx.add_paragraph(stripped)
+                has_content = True
+
+        # Method 3: extract as raw words if still nothing
+        if not has_content:
+            words = page.get_text("words")
+            if words:
+                text = " ".join([w[4] for w in words if len(w) > 4 and w[4].strip()])
+                if text.strip():
+                    docx.add_paragraph(text)
 
         if page_num < len(pdf) - 1:
             docx.add_page_break()
