@@ -16,6 +16,7 @@ class TaskResponse(BaseModel):
     tool_type: str
     status: str
     output_file_url: str | None = None
+    result_content: str | None = None
     error_message: str | None = None
     credits_cost: float = 0
     created_at: datetime

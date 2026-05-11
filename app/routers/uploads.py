@@ -5,6 +5,7 @@ import json
 import uuid
 from datetime import datetime, UTC
 
+import httpx
 from PIL import Image
 
 from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile, File
@@ -80,6 +81,9 @@ async def upload_and_process(
     db.add(task)
     db.commit()
 
+    # Track result content for tools that return text
+    result_content = None
+
     # Wrap all external calls so failures are caught and recorded
     try:
         # Upload to storage
@@ -93,7 +97,40 @@ async def upload_and_process(
             task.completed_at = datetime.now(UTC)
 
         elif tool_type == "watermark-remover":
-            output = await run_watermark_removal(image_url)
+            # Pad image to square to prevent aspect ratio distortion
+            img = Image.open(io_module.BytesIO(file_bytes))
+            orig_w, orig_h = img.size
+            if orig_w != orig_h:
+                side = max(orig_w, orig_h)
+                padded = Image.new("RGB", (side, side), (255, 255, 255))
+                padded.paste(img, ((side - orig_w) // 2, (side - orig_h) // 2))
+                buf = io_module.BytesIO()
+                padded.save(buf, format="PNG")
+                await upload_file(buf.getvalue(), upload_key, content_type)
+                image_url = generate_presigned_url(upload_key, expires_in=3600)
+            output_url = await run_watermark_removal(image_url)
+            # Crop back to original aspect ratio
+            if orig_w != orig_h:
+                resp = httpx.get(output_url, timeout=30)
+                result_img = Image.open(io_module.BytesIO(resp.content))
+                if result_img.size[0] == result_img.size[1]:
+                    side = result_img.size[0]
+                    scale = side / max(orig_w, orig_h)
+                    new_w, new_h = int(orig_w * scale), int(orig_h * scale)
+                    left = (side - new_w) // 2
+                    top = (side - new_h) // 2
+                    cropped = result_img.crop((left, top, left + new_w, top + new_h))
+                    # Resize to exact original dimensions
+                    cropped = cropped.resize((orig_w, orig_h), Image.LANCZOS)
+                    buf = io_module.BytesIO()
+                    cropped.save(buf, format="PNG")
+                    output_key = generate_download_key(user.id, task_id, "png")
+                    await upload_file(buf.getvalue(), output_key, "image/png")
+                    task.output_file_url = generate_presigned_url(output_key, expires_in=3600)
+                else:
+                    task.output_file_url = output_url
+            else:
+                task.output_file_url = output_url
             task.output_file_url = output
             task.status = TaskStatus.COMPLETED
             task.completed_at = datetime.now(UTC)
@@ -155,6 +192,7 @@ async def upload_and_process(
                 text_content = file_bytes.decode("utf-8", errors="replace")
 
             output = await run_text_polish(text_content, mode)
+            result_content = output
             # Save text output to storage
             output_key = generate_download_key(user.id, task_id, "txt")
             await upload_file(output.encode("utf-8"), output_key, "text/plain")
@@ -210,6 +248,7 @@ async def upload_and_process(
         tool_type=task.tool_type,
         status=task.status.value if isinstance(task.status, TaskStatus) else task.status,
         output_file_url=task.output_file_url,
+        result_content=result_content,
         error_message=task.error_message,
         credits_cost=task.credits_cost,
         created_at=task.created_at,
