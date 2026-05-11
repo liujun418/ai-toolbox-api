@@ -43,7 +43,7 @@ async def run_photo_restoration(image_url: str, colorize: bool = False) -> str:
     """Restore old/damaged photo using GFPGAN."""
     client = get_replicate()
     output = client.run(
-        "xinntiao/gfpgan:45b9ef47a0a420db763e389d6cf96d90eb4b623b1e16f40f83fd29b06e369e88",
+        "xinntiao/gfpgan:92296352d6ba42479f5c1629c5a2007e5cc09a71a08e2695d3e3d27e11069496",
         input={
             "img": image_url,
             "version": "v1.4",
@@ -123,17 +123,18 @@ async def run_text_polish(text: str, mode: str = "polish") -> str:
     client = get_replicate()
 
     mode_instructions = {
-        "polish": "Improve the grammar, spelling, and clarity of the following text while keeping the same meaning.",
-        "rewrite": "Rewrite the following text with different wording while keeping the same meaning.",
-        "shorten": "Make the following text more concise while keeping the key points.",
-        "expand": "Expand the following text with more detail and explanation.",
+        "polish": "Improve the grammar, spelling, and clarity of the given text while keeping the same meaning. Return only the improved text, no explanations.",
+        "rewrite": "Rewrite the given text with different wording while keeping the same meaning. Return only the rewritten text, no explanations.",
+        "shorten": "Make the given text more concise while keeping the key points. Return only the shortened text, no explanations.",
+        "expand": "Expand the given text with more detail and explanation. Return only the expanded text, no explanations.",
     }
     instruction = mode_instructions.get(mode, mode_instructions["polish"])
 
     output = client.run(
         "meta/meta-llama-3-70b-instruct:fbfb20b472b2f3bdd101412a9f70a0ed4fc0ced78a77ff00970ee7a2383c575d",
         input={
-            "prompt": f"{instruction}\n\nText: {text}\n\nResult:",
+            "system_prompt": instruction,
+            "prompt": text,
             "max_tokens": 4096,
             "temperature": 0.7,
         },
