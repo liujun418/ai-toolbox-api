@@ -246,9 +246,13 @@ async def upload_and_process(
             task.credits_cost = actual_cost
             credits_needed = actual_cost
 
-            docx_bytes = await convert_pdf_to_word(
-                file_bytes, file.filename or "document.pdf"
-            )
+            try:
+                docx_bytes = await convert_pdf_to_word(
+                    file_bytes, file.filename or "document.pdf"
+                )
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e))
+
             output_key = generate_download_key(user.id, task_id, "docx")
             await upload_file(
                 docx_bytes,
