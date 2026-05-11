@@ -123,9 +123,9 @@ async def upload_and_process(
             cleaned = Image.open(io_module.BytesIO(resp.content)).convert("RGB")
             cleaned = cleaned.resize((orig_w, orig_h), Image.LANCZOS)
 
-            # Composite: mask white = use cleaned, mask black = use original
-            mask_rgb = user_mask.convert("RGB")
-            result_img = Image.composite(cleaned, orig_img, mask_rgb)
+            # Composite: mask white(255) = cleaned, mask black(0) = original
+            # Image.composite(image1=mask_0, image2=mask_255, mask)
+            result_img = Image.composite(orig_img, cleaned, user_mask)
 
             out_buf = io_module.BytesIO()
             result_img.save(out_buf, format="PNG")
