@@ -124,24 +124,24 @@ async def upload_and_process(
 
             output_url = await run_watermark_removal(image_url, mask_url)
 
-            # Crop back to original dimensions if padded
+            # Crop back to original dimensions if padded (SDXL outputs at 1024x1024)
             if orig_w != orig_h:
                 resp = httpx.get(output_url, timeout=30)
                 result_img = Image.open(io_module.BytesIO(resp.content))
-                if result_img.size[0] == side:
-                    scale_val = side / max(orig_w, orig_h)
-                    new_w, new_h = int(orig_w * scale_val), int(orig_h * scale_val)
-                    left = (side - new_w) // 2
-                    top = (side - new_h) // 2
-                    cropped = result_img.crop((left, top, left + new_w, top + new_h))
-                    cropped = cropped.resize((orig_w, orig_h), Image.LANCZOS)
-                    buf2 = io_module.BytesIO()
-                    cropped.save(buf2, format="PNG")
-                    output_key = generate_download_key(user.id, task_id, "png")
-                    await upload_file(buf2.getvalue(), output_key, "image/png")
-                    task.output_file_url = generate_presigned_url(output_key, expires_in=3600)
-                else:
-                    task.output_file_url = output_url
+                out_side = result_img.size[0]
+                w_ratio = orig_w / side
+                h_ratio = orig_h / side
+                cw = int(out_side * w_ratio)
+                ch = int(out_side * h_ratio)
+                left = (out_side - cw) // 2
+                top = (out_side - ch) // 2
+                cropped = result_img.crop((left, top, left + cw, top + ch))
+                cropped = cropped.resize((orig_w, orig_h), Image.LANCZOS)
+                buf2 = io_module.BytesIO()
+                cropped.save(buf2, format="PNG")
+                output_key = generate_download_key(user.id, task_id, "png")
+                await upload_file(buf2.getvalue(), output_key, "image/png")
+                task.output_file_url = generate_presigned_url(output_key, expires_in=3600)
             else:
                 task.output_file_url = output_url
 
