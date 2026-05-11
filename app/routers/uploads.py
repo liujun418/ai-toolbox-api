@@ -98,27 +98,31 @@ async def upload_and_process(
         image_url = generate_presigned_url(upload_key, expires_in=3600)
 
         if tool_type == "background-remover":
-            result_url = await run_background_remover(image_url)
             if mask is not None and mask.filename:
-                # Manual mode: AI extraction within painted area, transparent outside
+                # Manual mode: 1) clear unmarked → transparent, 2) AI on marked area
                 mask_bytes = await mask.read()
                 user_mask = Image.open(io_module.BytesIO(mask_bytes)).convert("L")
                 orig_img = Image.open(io_module.BytesIO(file_bytes)).convert("RGBA")
-                resp = httpx.get(result_url, timeout=30)
-                rembg_img = Image.open(io_module.BytesIO(resp.content)).convert("RGBA")
                 if user_mask.size != orig_img.size:
                     user_mask = user_mask.resize(orig_img.size, Image.LANCZOS)
-                if rembg_img.size != orig_img.size:
-                    rembg_img = rembg_img.resize(orig_img.size, Image.LANCZOS)
-                # Composite: painted area = AI result, unpainted = transparent
-                transparent = Image.new("RGBA", orig_img.size, (0, 0, 0, 0))
-                result = Image.composite(transparent, rembg_img, user_mask)
+                # Step 1: set unmarked pixels to transparent
+                px = orig_img.load()
+                mp = user_mask.load()
+                for y in range(orig_img.height):
+                    for x in range(orig_img.width):
+                        if mp[x, y] < 128:
+                            px[x, y] = (0, 0, 0, 0)
+                # Upload masked image, run AI on it
                 buf = io_module.BytesIO()
-                result.save(buf, format="PNG")
-                output_key = generate_download_key(user.id, task_id, "png")
-                await upload_file(buf.getvalue(), output_key, "image/png")
-                task.output_file_url = generate_presigned_url(output_key, expires_in=3600)
+                orig_img.save(buf, format="PNG")
+                masked_key = f"masks/{user.id}/{uuid.uuid4().hex}.png"
+                await upload_file(buf.getvalue(), masked_key, "image/png")
+                masked_url = generate_presigned_url(masked_key, expires_in=3600)
+                result_url = await run_background_remover(masked_url)
+                task.output_file_url = result_url
             else:
+                # Auto mode
+                result_url = await run_background_remover(image_url)
                 task.output_file_url = result_url
             task.status = TaskStatus.COMPLETED
             task.completed_at = datetime.now(UTC)
