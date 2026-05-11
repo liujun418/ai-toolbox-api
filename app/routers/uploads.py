@@ -93,7 +93,7 @@ async def upload_and_process(
             task.completed_at = datetime.now(UTC)
 
         elif tool_type == "watermark-remover":
-            output = await run_watermark_removal(image_url, "")
+            output = await run_watermark_removal(image_url)
             task.output_file_url = output
             task.status = TaskStatus.COMPLETED
             task.completed_at = datetime.now(UTC)
