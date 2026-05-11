@@ -23,13 +23,19 @@ async def run_background_remover(image_url: str) -> str:
 
 
 async def run_watermark_removal(image_url: str, mask_url: str) -> str:
-    """Remove watermark using LaMa inpainting model."""
+    """Remove watermark using SDXL img2img with low strength."""
     client = get_replicate()
     output = client.run(
-        "dpakkk/image-object-removal",
-        input={"image": image_url, "mask": mask_url},
+        "stability-ai/sdxl:7762fd07cf82c948538e41f63f77d685e02b063e37e496e96eefd46c929f9bdc",
+        input={
+            "prompt": "Remove watermarks, text overlays, logos and stamps from this image. Keep the original image content, colors and composition unchanged. Clean image without any text or marks.",
+            "image": image_url,
+            "strength": 0.3,
+            "num_outputs": 1,
+        },
     )
-    return str(output)
+    urls = [str(u) for u in output]
+    return urls[0] if urls else ""
 
 
 async def run_photo_restoration(image_url: str, colorize: bool = False) -> str:

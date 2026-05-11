@@ -93,14 +93,7 @@ async def upload_and_process(
             task.completed_at = datetime.now(UTC)
 
         elif tool_type == "watermark-remover":
-            # Generate white mask for LaMa inpainting (whole image = inpaint area)
-            mask_key = f"masks/{user.id}/{uuid.uuid4().hex}.png"
-            img = Image.open(io_module.BytesIO(file_bytes))
-            mask = Image.new("L", img.size, 255)
-            mask_buffer = io_module.BytesIO()
-            mask.save(mask_buffer, format="PNG")
-            await upload_file(mask_buffer.getvalue(), mask_key, "image/png")
-            output = await run_watermark_removal(image_url, generate_presigned_url(mask_key, expires_in=3600))
+            output = await run_watermark_removal(image_url, "")
             task.output_file_url = output
             task.status = TaskStatus.COMPLETED
             task.completed_at = datetime.now(UTC)
