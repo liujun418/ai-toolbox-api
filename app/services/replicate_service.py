@@ -26,7 +26,7 @@ async def run_watermark_removal(image_url: str, mask_url: str) -> str:
     """Remove watermark using LaMa inpainting model."""
     client = get_replicate()
     output = client.run(
-        "talesofai/lama:927d0c87970210e45524c3648c121961d4503047f80989a06f32928b561953cd",
+        "twn39/lama:c5537e510ca1323c525a61ce462a32a4c5e9bdbb0d75a577fa07f06aa0b969e8",
         input={"image": image_url, "mask": mask_url},
     )
     return str(output)
