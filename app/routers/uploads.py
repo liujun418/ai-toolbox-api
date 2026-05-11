@@ -61,10 +61,16 @@ async def upload_and_process(
             detail=f"Not enough credits. Need {credits_needed}, have {user.credits}",
         )
 
-    # Read file
+    # Read file and validate size
     file_bytes = await file.read()
     if not file_bytes:
         raise HTTPException(status_code=400, detail="Empty file")
+    MAX_SIZES = {"pdf-to-word": 20 * 1024 * 1024}
+    default_max = 5 * 1024 * 1024
+    size_limit = MAX_SIZES.get(tool_type, default_max)
+    if len(file_bytes) > size_limit:
+        limit_mb = size_limit // (1024 * 1024)
+        raise HTTPException(status_code=400, detail=f"File too large. Maximum size is {limit_mb}MB.")
 
     # Create task first (so we can track failures)
     task_id = str(uuid.uuid4())
