@@ -22,17 +22,16 @@ async def run_background_remover(image_url: str) -> str:
     return str(output)
 
 
-async def run_watermark_removal(image_url: str, mask_url: str) -> str:
-    """Remove watermark using official Stable Diffusion Inpainting model."""
+async def run_watermark_removal(image_url: str) -> str:
+    """Generate a cleaned version of the image using SDXL img2img."""
     client = get_replicate()
     output = client.run(
-        "stability-ai/stable-diffusion-inpainting",
+        "stability-ai/sdxl:7762fd07cf82c948538e41f63f77d685e02b063e37e496e96eefd46c929f9bdc",
         input={
             "image": image_url,
-            "mask": mask_url,
-            "prompt": "Clean seamless background matching surrounding colors and textures. No text, watermark, logo or marks.",
-            "negative_prompt": "watermark, text, logo, signature, letters, numbers, symbol, stamp",
-            "prompt_strength": 0.85,
+            "prompt": "Clean seamless photograph without any text, watermark, logo, signature, stamp, or overlay. Natural colors and textures.",
+            "negative_prompt": "watermark, text, logo, signature, letters, numbers, symbol, stamp, URL, copyright, overlay",
+            "strength": 0.5,
             "num_inference_steps": 25,
         },
     )

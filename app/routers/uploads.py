@@ -98,16 +98,15 @@ async def upload_and_process(
             task.completed_at = datetime.now(UTC)
 
         elif tool_type == "watermark-remover":
-            img = Image.open(io_module.BytesIO(file_bytes))
-            orig_w, orig_h = img.size
+            orig_img = Image.open(io_module.BytesIO(file_bytes)).convert("RGB")
+            orig_w, orig_h = orig_img.size
 
-            # Build mask: user-provided or full white fallback
+            # Build mask from user input or default to full white
             if mask is not None and mask.filename:
                 mask_bytes = await mask.read()
                 user_mask = Image.open(io_module.BytesIO(mask_bytes)).convert("L")
                 if user_mask.size != (orig_w, orig_h):
                     user_mask = user_mask.resize((orig_w, orig_h), Image.LANCZOS)
-                # Check mask actually has white pixels
                 if user_mask.getextrema()[1] < 128:
                     user_mask = None
             else:
@@ -116,20 +115,18 @@ async def upload_and_process(
             if user_mask is None:
                 user_mask = Image.new("L", (orig_w, orig_h), 255)
 
-            # Upload mask
-            mask_key = f"masks/{user.id}/{uuid.uuid4().hex}.png"
-            mask_buf = io_module.BytesIO()
-            user_mask.save(mask_buf, format="PNG")
-            await upload_file(mask_buf.getvalue(), mask_key, "image/png")
-            mask_url = generate_presigned_url(mask_key, expires_in=3600)
+            # Get SDXL cleaned version
+            output_url = await run_watermark_removal(image_url)
 
-            # SDXL inpainting — no padding, model handles any size internally
-            output_url = await run_watermark_removal(image_url, mask_url)
-
-            # SDXL outputs at 1024x1024, resize back to original
+            # Download SDXL output and composite with original using mask
             resp = httpx.get(output_url, timeout=30)
-            result_img = Image.open(io_module.BytesIO(resp.content))
-            result_img = result_img.resize((orig_w, orig_h), Image.LANCZOS)
+            cleaned = Image.open(io_module.BytesIO(resp.content)).convert("RGB")
+            cleaned = cleaned.resize((orig_w, orig_h), Image.LANCZOS)
+
+            # Composite: mask white = use cleaned, mask black = use original
+            mask_rgb = user_mask.convert("RGB")
+            result_img = Image.composite(cleaned, orig_img, mask_rgb)
+
             out_buf = io_module.BytesIO()
             result_img.save(out_buf, format="PNG")
             output_key = generate_download_key(user.id, task_id, "png")
