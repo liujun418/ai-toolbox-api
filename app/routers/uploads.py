@@ -113,7 +113,7 @@ async def upload_and_process(
                 mp = user_mask.load()
                 for y in range(ai_img.height):
                     for x in range(ai_img.width):
-                        if mp[x, y] < 128:
+                        if mp[x, y] > 128:
                             px[x, y] = (0, 0, 0, 0)
                 buf = io_module.BytesIO()
                 ai_img.save(buf, format="PNG")
