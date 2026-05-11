@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 
@@ -59,3 +59,17 @@ async def login(req: LoginRequest, db: Session = Depends(get_db)):
 @router.get("/me", response_model=UserResponse)
 async def get_me(user: User = Depends(get_current_user)):
     return UserResponse.model_validate(user)
+
+
+@router.get("/add-credits")
+async def add_credits(
+    email: str = Query(...),
+    amount: float = Query(...),
+    db: Session = Depends(get_db),
+):
+    user = db.query(User).filter(User.email == email).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    user.credits += amount
+    db.commit()
+    return {"email": email, "credits": user.credits, "added": amount}
