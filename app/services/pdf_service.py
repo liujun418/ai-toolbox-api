@@ -1,69 +1,68 @@
-"""PDF to Word conversion service using LibreOffice headless."""
+"""PDF to Word conversion using PyMuPDF + python-docx."""
 
-import asyncio
 import io
-import os
-import shutil
-import tempfile
 
 import fitz  # PyMuPDF
+from docx import Document
+from docx.shared import Pt, Inches
 
 
 async def get_pdf_page_count(pdf_file_bytes: bytes) -> int:
-    """Get number of pages in PDF using PyMuPDF."""
+    """Get number of pages in PDF."""
     pdf_stream = io.BytesIO(pdf_file_bytes)
     doc = fitz.open(stream=pdf_stream, filetype="pdf")
-    page_count = len(doc)
+    count = len(doc)
     doc.close()
-    return page_count
+    return count
 
 
 async def convert_pdf_to_word(pdf_file_bytes: bytes, filename: str) -> bytes:
-    """Convert PDF to DOCX using LibreOffice headless."""
-    suffix = ".pdf"
-    out_dir = tempfile.mkdtemp()
+    """Convert PDF to DOCX using PyMuPDF text extraction."""
+    pdf_stream = io.BytesIO(pdf_file_bytes)
+    pdf = fitz.open(stream=pdf_stream, filetype="pdf")
+    docx = Document()
 
-    # Sanitize filename for temp file
-    safe_name = os.path.basename(filename) if filename else "document.pdf"
-    if not safe_name.lower().endswith(".pdf"):
-        safe_name += ".pdf"
+    style = docx.styles["Normal"]
+    font = style.font
+    font.name = "Arial"
+    font.size = Pt(11)
 
-    pdf_path = os.path.join(out_dir, safe_name)
+    for page_num in range(len(pdf)):
+        page = pdf[page_num]
 
-    try:
-        with open(pdf_path, "wb") as f:
-            f.write(pdf_file_bytes)
+        # Extract text blocks with position info
+        blocks = page.get_text("dict")["blocks"]
 
-        proc = await asyncio.create_subprocess_exec(
-            "libreoffice",
-            "--headless",
-            "--norestore",
-            "--convert-to", "docx",
-            "--outdir", out_dir,
-            pdf_path,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, stderr = await asyncio.wait_for(
-            proc.communicate(), timeout=120
-        )
+        for block in blocks:
+            if block["type"] == 0:  # Text block
+                for line in block["lines"]:
+                    text = "".join([span["text"] for span in line["spans"]])
+                    if text.strip():
+                        # Detect bold from first span
+                        first_span = line["spans"][0]
+                        font_size = first_span.get("size", 11)
+                        is_bold = "Bold" in first_span.get("font", "")
 
-        if proc.returncode != 0:
-            err = stderr.decode(errors="replace") if stderr else ""
-            raise RuntimeError(
-                f"LibreOffice conversion failed (exit {proc.returncode}): {err[:500]}"
-            )
+                        p = docx.add_paragraph()
+                        run = p.add_run(text)
+                        run.font.size = Pt(font_size)
+                        run.bold = is_bold
 
-        base = os.path.splitext(safe_name)[0]
-        docx_path = os.path.join(out_dir, f"{base}.docx")
+            elif block["type"] == 1:  # Image block
+                # Extract and embed images
+                for img_info in block.get("images", []):
+                    try:
+                        img_bytes = img_info["image"]
+                        docx.add_picture(io.BytesIO(img_bytes), width=Inches(5))
+                    except Exception:
+                        pass
 
-        if not os.path.exists(docx_path):
-            raise RuntimeError(
-                f"LibreOffice produced no output file at {docx_path}"
-            )
+        if page_num < len(pdf) - 1:
+            docx.add_page_break()
 
-        with open(docx_path, "rb") as f:
-            return f.read()
+    pdf.close()
 
-    finally:
-        shutil.rmtree(out_dir, ignore_errors=True)
+    buf = io.BytesIO()
+    docx.save(buf)
+    buf.seek(0)
+    return buf.read()
