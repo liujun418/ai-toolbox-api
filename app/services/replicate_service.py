@@ -31,7 +31,7 @@ async def run_watermark_removal(image_url: str) -> str:
             "image": image_url,
             "prompt": "Clean seamless photograph without any text, watermark, logo, signature, stamp, or overlay. Natural colors and textures.",
             "negative_prompt": "watermark, text, logo, signature, letters, numbers, symbol, stamp, URL, copyright, overlay",
-            "strength": 0.5,
+            "prompt_strength": 0.5,
             "num_inference_steps": 25,
         },
     )
@@ -42,13 +42,13 @@ async def run_watermark_removal(image_url: str) -> str:
 async def run_photo_restoration(image_url: str, colorize: bool = False) -> str:
     """Restore old/damaged photo using GFPGAN."""
     client = get_replicate()
-    model = "xinntiao/gfpgan:92296352d6ba42479f5c1629c5a2007e5cc09a71a08e2695d3e3d27e11069496"
     output = client.run(
-        model,
+        "xinntiao/gfpgan:45b9ef47a0a420db763e389d6cf96d90eb4b623b1e16f40f83fd29b06e369e88",
         input={
             "img": image_url,
             "version": "v1.4",
-            "upscale": 2,
+            "scale": 2,
+            "weight": 0.5,
         },
     )
     return str(output)
@@ -61,29 +61,29 @@ async def run_avatar_generation(
     """Generate avatar/cartoon from photo using SDXL.
     Returns list of generated image URLs."""
     client = get_replicate()
-    # SDXL with a cartoon/anime LoRA
+    # SDXL img2img for avatar generation
     output = client.run(
         "stability-ai/sdxl:7762fd07cf82c948538e41f63f77d685e02b063e37e496e96eefd46c929f9bdc",
         input={
             "prompt": f"cartoon avatar portrait, anime style, vibrant colors, {style}",
             "image": image_url,
-            "strength": 0.7,
+            "prompt_strength": 0.6,
             "num_outputs": 4,
+            "num_inference_steps": 25,
         },
     )
     return [str(u) for u in output]
 
 
-async def run_image_upscaler(image_url: str, scale: str = "2x") -> str:
+async def run_image_upscaler(image_url: str, scale: int = 2) -> str:
     """Upscale image using Real-ESRGAN super-resolution.
-    Returns URL of upscaled image."""
+    Returns URL of upscaled image. Scale: 2 or 4."""
     client = get_replicate()
-    upscale_factor = 2 if scale == "2x" else 4
     output = client.run(
-        "stability-ai/esrgan-v2:13aa845e31c1d5a4d0067ba9351dd6b3961dc4e10e28af0f15a45450c0d4e7f0",
+        "nightmareai/real-esrgan",
         input={
             "image": image_url,
-            "scale": upscale_factor,
+            "scale": scale,
             "face_enhance": True,
         },
     )
@@ -108,8 +108,9 @@ async def run_style_transfer(image_url: str, style: str = "oil-painting") -> str
         input={
             "prompt": prompt,
             "image": image_url,
-            "strength": 0.75,
+            "prompt_strength": 0.6,
             "num_outputs": 1,
+            "num_inference_steps": 25,
         },
     )
     urls = [str(u) for u in output]

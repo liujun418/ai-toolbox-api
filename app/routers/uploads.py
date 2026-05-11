@@ -156,10 +156,7 @@ async def upload_and_process(
             task.completed_at = datetime.now(UTC)
 
         elif tool_type == "image-upscaler":
-            # Parse scale from prompt: "Upscale image by 2x. ..." or "Upscale image by 4x. ..."
-            scale = "2x"
-            if prompt and "4x" in prompt:
-                scale = "4x"
+            scale = 4 if (prompt and "4x" in prompt) else 2
             output = await run_image_upscaler(image_url, scale)
             task.output_file_url = output
             task.status = TaskStatus.COMPLETED
