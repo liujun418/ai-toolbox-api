@@ -120,7 +120,6 @@ async def upload_and_process(
                     left = (side - new_w) // 2
                     top = (side - new_h) // 2
                     cropped = result_img.crop((left, top, left + new_w, top + new_h))
-                    # Resize to exact original dimensions
                     cropped = cropped.resize((orig_w, orig_h), Image.LANCZOS)
                     buf = io_module.BytesIO()
                     cropped.save(buf, format="PNG")
@@ -131,7 +130,6 @@ async def upload_and_process(
                     task.output_file_url = output_url
             else:
                 task.output_file_url = output_url
-            task.output_file_url = output
             task.status = TaskStatus.COMPLETED
             task.completed_at = datetime.now(UTC)
 
