@@ -98,7 +98,7 @@ async def upload_and_process(
         image_url = generate_presigned_url(upload_key, expires_in=3600)
 
         if tool_type == "background-remover":
-            if mask is not None and mask.filename:
+            if mask is not None and mask.filename and mask.size and mask.size > 0:
                 # Manual mode: 1) clear unmarked → transparent, 2) AI on marked area
                 mask_bytes = await mask.read()
                 user_mask = Image.open(io_module.BytesIO(mask_bytes)).convert("L")
