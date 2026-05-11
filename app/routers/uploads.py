@@ -40,6 +40,7 @@ async def upload_and_process(
     tool_type: str,
     file: UploadFile = File(...),
     prompt: str | None = Form(default=None),
+    mask: UploadFile | None = File(default=None),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -97,53 +98,43 @@ async def upload_and_process(
             task.completed_at = datetime.now(UTC)
 
         elif tool_type == "watermark-remover":
-            # Generate white mask for SDXL inpainting (white = inpaint, black = keep)
             img = Image.open(io_module.BytesIO(file_bytes))
             orig_w, orig_h = img.size
 
-            if orig_w != orig_h:
-                # Pad image to square to avoid distortion
-                side = max(orig_w, orig_h)
-                padded_img = Image.new("RGB", (side, side), (255, 255, 255))
-                padded_img.paste(img, ((side - orig_w) // 2, (side - orig_h) // 2))
-                buf = io_module.BytesIO()
-                padded_img.save(buf, format="PNG")
-                await upload_file(buf.getvalue(), upload_key, content_type)
-                image_url = generate_presigned_url(upload_key, expires_in=3600)
-                # Mask: white padding areas + white overlay on content (regenerate everything)
-                mask = Image.new("L", (side, side), 255)
+            # Build mask: user-provided or full white fallback
+            if mask is not None and mask.filename:
+                mask_bytes = await mask.read()
+                user_mask = Image.open(io_module.BytesIO(mask_bytes)).convert("L")
+                if user_mask.size != (orig_w, orig_h):
+                    user_mask = user_mask.resize((orig_w, orig_h), Image.LANCZOS)
+                # Check mask actually has white pixels
+                if user_mask.getextrema()[1] < 128:
+                    user_mask = None
             else:
-                side = orig_w
-                mask = Image.new("L", (orig_w, orig_h), 255)
+                user_mask = None
 
+            if user_mask is None:
+                user_mask = Image.new("L", (orig_w, orig_h), 255)
+
+            # Upload mask
             mask_key = f"masks/{user.id}/{uuid.uuid4().hex}.png"
             mask_buf = io_module.BytesIO()
-            mask.save(mask_buf, format="PNG")
+            user_mask.save(mask_buf, format="PNG")
             await upload_file(mask_buf.getvalue(), mask_key, "image/png")
             mask_url = generate_presigned_url(mask_key, expires_in=3600)
 
+            # SDXL inpainting — no padding, model handles any size internally
             output_url = await run_watermark_removal(image_url, mask_url)
 
-            # Crop back to original dimensions if padded (SDXL outputs at 1024x1024)
-            if orig_w != orig_h:
-                resp = httpx.get(output_url, timeout=30)
-                result_img = Image.open(io_module.BytesIO(resp.content))
-                out_side = result_img.size[0]
-                w_ratio = orig_w / side
-                h_ratio = orig_h / side
-                cw = int(out_side * w_ratio)
-                ch = int(out_side * h_ratio)
-                left = (out_side - cw) // 2
-                top = (out_side - ch) // 2
-                cropped = result_img.crop((left, top, left + cw, top + ch))
-                cropped = cropped.resize((orig_w, orig_h), Image.LANCZOS)
-                buf2 = io_module.BytesIO()
-                cropped.save(buf2, format="PNG")
-                output_key = generate_download_key(user.id, task_id, "png")
-                await upload_file(buf2.getvalue(), output_key, "image/png")
-                task.output_file_url = generate_presigned_url(output_key, expires_in=3600)
-            else:
-                task.output_file_url = output_url
+            # SDXL outputs at 1024x1024, resize back to original
+            resp = httpx.get(output_url, timeout=30)
+            result_img = Image.open(io_module.BytesIO(resp.content))
+            result_img = result_img.resize((orig_w, orig_h), Image.LANCZOS)
+            out_buf = io_module.BytesIO()
+            result_img.save(out_buf, format="PNG")
+            output_key = generate_download_key(user.id, task_id, "png")
+            await upload_file(out_buf.getvalue(), output_key, "image/png")
+            task.output_file_url = generate_presigned_url(output_key, expires_in=3600)
 
             task.status = TaskStatus.COMPLETED
             task.completed_at = datetime.now(UTC)
