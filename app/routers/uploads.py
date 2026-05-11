@@ -97,39 +97,54 @@ async def upload_and_process(
             task.completed_at = datetime.now(UTC)
 
         elif tool_type == "watermark-remover":
-            # Pad image to square to prevent aspect ratio distortion
+            # Generate white mask for SDXL inpainting (white = inpaint, black = keep)
             img = Image.open(io_module.BytesIO(file_bytes))
             orig_w, orig_h = img.size
+
             if orig_w != orig_h:
+                # Pad image to square to avoid distortion
                 side = max(orig_w, orig_h)
-                padded = Image.new("RGB", (side, side), (255, 255, 255))
-                padded.paste(img, ((side - orig_w) // 2, (side - orig_h) // 2))
+                padded_img = Image.new("RGB", (side, side), (255, 255, 255))
+                padded_img.paste(img, ((side - orig_w) // 2, (side - orig_h) // 2))
                 buf = io_module.BytesIO()
-                padded.save(buf, format="PNG")
+                padded_img.save(buf, format="PNG")
                 await upload_file(buf.getvalue(), upload_key, content_type)
                 image_url = generate_presigned_url(upload_key, expires_in=3600)
-            output_url = await run_watermark_removal(image_url)
-            # Crop back to original aspect ratio
+                # Mask: white padding areas + white overlay on content (regenerate everything)
+                mask = Image.new("L", (side, side), 255)
+            else:
+                side = orig_w
+                mask = Image.new("L", (orig_w, orig_h), 255)
+
+            mask_key = f"masks/{user.id}/{uuid.uuid4().hex}.png"
+            mask_buf = io_module.BytesIO()
+            mask.save(mask_buf, format="PNG")
+            await upload_file(mask_buf.getvalue(), mask_key, "image/png")
+            mask_url = generate_presigned_url(mask_key, expires_in=3600)
+
+            output_url = await run_watermark_removal(image_url, mask_url)
+
+            # Crop back to original dimensions if padded
             if orig_w != orig_h:
                 resp = httpx.get(output_url, timeout=30)
                 result_img = Image.open(io_module.BytesIO(resp.content))
-                if result_img.size[0] == result_img.size[1]:
-                    side = result_img.size[0]
-                    scale = side / max(orig_w, orig_h)
-                    new_w, new_h = int(orig_w * scale), int(orig_h * scale)
+                if result_img.size[0] == side:
+                    scale_val = side / max(orig_w, orig_h)
+                    new_w, new_h = int(orig_w * scale_val), int(orig_h * scale_val)
                     left = (side - new_w) // 2
                     top = (side - new_h) // 2
                     cropped = result_img.crop((left, top, left + new_w, top + new_h))
                     cropped = cropped.resize((orig_w, orig_h), Image.LANCZOS)
-                    buf = io_module.BytesIO()
-                    cropped.save(buf, format="PNG")
+                    buf2 = io_module.BytesIO()
+                    cropped.save(buf2, format="PNG")
                     output_key = generate_download_key(user.id, task_id, "png")
-                    await upload_file(buf.getvalue(), output_key, "image/png")
+                    await upload_file(buf2.getvalue(), output_key, "image/png")
                     task.output_file_url = generate_presigned_url(output_key, expires_in=3600)
                 else:
                     task.output_file_url = output_url
             else:
                 task.output_file_url = output_url
+
             task.status = TaskStatus.COMPLETED
             task.completed_at = datetime.now(UTC)
 

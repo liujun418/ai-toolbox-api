@@ -22,19 +22,21 @@ async def run_background_remover(image_url: str) -> str:
     return str(output)
 
 
-async def run_watermark_removal(image_url: str) -> str:
-    """Remove watermark using Inst-Inpaint — text-guided object removal."""
+async def run_watermark_removal(image_url: str, mask_url: str) -> str:
+    """Remove watermark using SDXL inpainting — only inpaints masked areas."""
     client = get_replicate()
     output = client.run(
-        "adirik/inst-inpaint:ee04e541de8045e9c38cd5b27da0387df8f653972f1aa2c89f029d572685a938",
+        "stability-ai/sdxl:7762fd07cf82c948538e41f63f77d685e02b063e37e496e96eefd46c929f9bdc",
         input={
             "image": image_url,
-            "instruction": "Remove the watermark, text overlay, and logo from this image",
-            "center_crop": False,
-            "num_inference_steps": 30,
+            "mask": mask_url,
+            "prompt": "clean background without any text, watermark, logo, or overlay. Seamless restoration matching surrounding colors and textures.",
+            "prompt_strength": 0.15,
+            "num_inference_steps": 25,
         },
     )
-    return str(output)
+    urls = [str(u) for u in output]
+    return urls[0] if urls else ""
 
 
 async def run_photo_restoration(image_url: str, colorize: bool = False) -> str:
