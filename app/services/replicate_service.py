@@ -23,16 +23,16 @@ async def run_background_remover(image_url: str) -> str:
 
 
 async def run_watermark_removal(image_url: str, mask_url: str) -> str:
-    """Remove watermark using SDXL inpainting — preserves structure, removes overlays."""
+    """Remove watermark using SDXL inpainting — only inpaints user-marked areas."""
     client = get_replicate()
     output = client.run(
         "stability-ai/sdxl:7762fd07cf82c948538e41f63f77d685e02b063e37e496e96eefd46c929f9bdc",
         input={
             "image": image_url,
             "mask": mask_url,
-            "prompt": "A clean, natural photograph without any text, watermark, logo, signature, or digital overlay. Keep the original subject, colors, lighting and composition exactly as-is.",
-            "negative_prompt": "watermark, text overlay, logo, signature, copyright text, website URL, timestamp, semi-transparent text, digital watermark",
-            "prompt_strength": 0.55,
+            "prompt": "Seamless background matching the surrounding area. Natural colors and textures blending perfectly with adjacent unmarked regions. No text, no watermark, no logo, no overlay of any kind.",
+            "negative_prompt": "text, watermark, logo, signature, letters, numbers, symbols, overlay, stamp, URL, copyright",
+            "prompt_strength": 0.9,
             "num_inference_steps": 30,
         },
     )
