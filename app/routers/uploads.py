@@ -98,8 +98,27 @@ async def upload_and_process(
         image_url = generate_presigned_url(upload_key, expires_in=3600)
 
         if tool_type == "background-remover":
-            output = await run_background_remover(image_url)
-            task.output_file_url = output
+            result_url = await run_background_remover(image_url)
+            # If user provided keep-mask, composite: marked = original, rest = rembg
+            if mask is not None and mask.filename:
+                mask_bytes = await mask.read()
+                user_mask = Image.open(io_module.BytesIO(mask_bytes)).convert("L")
+                orig_img = Image.open(io_module.BytesIO(file_bytes)).convert("RGBA")
+                resp = httpx.get(result_url, timeout=30)
+                rembg_img = Image.open(io_module.BytesIO(resp.content)).convert("RGBA")
+                if user_mask.size != orig_img.size:
+                    user_mask = user_mask.resize(orig_img.size, Image.LANCZOS)
+                if rembg_img.size != orig_img.size:
+                    rembg_img = rembg_img.resize(orig_img.size, Image.LANCZOS)
+                # mask white = keep original, black = use rembg
+                result = Image.composite(orig_img, rembg_img, user_mask)
+                buf = io_module.BytesIO()
+                result.save(buf, format="PNG")
+                output_key = generate_download_key(user.id, task_id, "png")
+                await upload_file(buf.getvalue(), output_key, "image/png")
+                task.output_file_url = generate_presigned_url(output_key, expires_in=3600)
+            else:
+                task.output_file_url = result_url
             task.status = TaskStatus.COMPLETED
             task.completed_at = datetime.now(UTC)
 
