@@ -1,7 +1,5 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from alembic.config import Config
-from alembic import command
 
 from app.config import settings
 from app.routers import auth, tasks, uploads, payments
@@ -11,14 +9,6 @@ app = FastAPI(
     description="Backend API for AI ToolBox Online",
     version="0.1.0",
 )
-
-
-@app.on_event("startup")
-def run_migrations():
-    """Auto-run Alembic migrations on startup."""
-    import os
-    cfg = Config(os.path.join(os.path.dirname(__file__), "..", "alembic.ini"))
-    command.upgrade(cfg, "head")
 
 # CORS - allow frontend to access API
 app.add_middleware(
