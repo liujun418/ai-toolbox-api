@@ -22,21 +22,21 @@ async def run_background_remover(image_url: str) -> str:
     return str(output)
 
 
-async def run_watermark_removal(image_url: str) -> str:
-    """Generate a cleaned version of the image using SDXL img2img."""
+async def run_watermark_removal(image_url: str, mask_url: str) -> str:
+    """Remove watermarks/logos using BRIA Eraser (purpose-built inpainting).
+
+    Takes image + mask and outputs a cleaned image where the masked area
+    is seamlessly reconstructed from surrounding context.
+    """
     client = get_replicate()
     output = client.run(
-        "stability-ai/sdxl:7762fd07cf82c948538e41f63f77d685e02b063e37e496e96eefd46c929f9bdc",
+        "bria/eraser:893e924eecc119a0c5fbfa5d98401118dcbf0662574eb8d2c01be5749756cbd4",
         input={
             "image": image_url,
-            "prompt": "Clean seamless photograph without any text, watermark, logo, signature, stamp, or overlay. Natural colors and textures.",
-            "negative_prompt": "watermark, text, logo, signature, letters, numbers, symbol, stamp, URL, copyright, overlay",
-            "prompt_strength": 0.5,
-            "num_inference_steps": 25,
+            "mask": mask_url,
         },
     )
-    urls = [str(u) for u in output]
-    return urls[0] if urls else ""
+    return str(output)
 
 
 async def run_photo_restoration(image_url: str, colorize: bool = False) -> str:
@@ -131,7 +131,7 @@ async def run_text_polish(text: str, mode: str = "polish") -> str:
     instruction = mode_instructions.get(mode, mode_instructions["polish"])
 
     output = client.run(
-        "meta/meta-llama-3-70b-instruct:fbfb20b472b2f3bdd101412a9f70a0ed4fc0ced78a77ff00970ee7a2383c575d",
+        "meta/meta-llama-3.1-70b-instruct:baf226e1f0cc30952e39198a7dc1e8083d2686196464e0665e2d88108db29c61",
         input={
             "system_prompt": instruction,
             "prompt": text,

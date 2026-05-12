@@ -5,7 +5,6 @@ import json
 import uuid
 from datetime import datetime, UTC
 
-import httpx
 from PIL import Image
 
 from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile, File
@@ -127,41 +126,24 @@ async def upload_and_process(
             task.completed_at = datetime.now(UTC)
 
         elif tool_type == "watermark-remover":
-            orig_img = Image.open(io_module.BytesIO(file_bytes)).convert("RGB")
-            orig_w, orig_h = orig_img.size
-
-            # Build mask from user input or default to full white
-            if mask is not None and mask.filename:
+            # Build mask from user input or default to full white (whole image = inpaint area)
+            if mask is not None and mask.filename and mask.size and mask.size > 0:
                 mask_bytes = await mask.read()
-                user_mask = Image.open(io_module.BytesIO(mask_bytes)).convert("L")
-                if user_mask.size != (orig_w, orig_h):
-                    user_mask = user_mask.resize((orig_w, orig_h), Image.LANCZOS)
-                if user_mask.getextrema()[1] < 128:
-                    user_mask = None
+                mask_img = Image.open(io_module.BytesIO(mask_bytes)).convert("L")
             else:
-                user_mask = None
+                orig_img = Image.open(io_module.BytesIO(file_bytes))
+                mask_img = Image.new("L", orig_img.size, 255)
 
-            if user_mask is None:
-                user_mask = Image.new("L", (orig_w, orig_h), 255)
+            # Upload mask
+            mask_buf = io_module.BytesIO()
+            mask_img.save(mask_buf, format="PNG")
+            mask_key = f"masks/{user.id}/{uuid.uuid4().hex}.png"
+            await upload_file(mask_buf.getvalue(), mask_key, "image/png")
+            mask_url = generate_presigned_url(mask_key, expires_in=3600)
 
-            # Get SDXL cleaned version
-            output_url = await run_watermark_removal(image_url)
-
-            # Download SDXL output and composite with original using mask
-            resp = httpx.get(output_url, timeout=30)
-            cleaned = Image.open(io_module.BytesIO(resp.content)).convert("RGB")
-            cleaned = cleaned.resize((orig_w, orig_h), Image.LANCZOS)
-
-            # Composite: mask white(255) = cleaned, mask black(0) = original
-            # Image.composite(image1=mask_0, image2=mask_255, mask)
-            result_img = Image.composite(orig_img, cleaned, user_mask)
-
-            out_buf = io_module.BytesIO()
-            result_img.save(out_buf, format="PNG")
-            output_key = generate_download_key(user.id, task_id, "png")
-            await upload_file(out_buf.getvalue(), output_key, "image/png")
-            task.output_file_url = generate_presigned_url(output_key, expires_in=3600)
-
+            # BRIA Eraser: image + mask → cleaned output
+            result_url = await run_watermark_removal(image_url, mask_url)
+            task.output_file_url = result_url
             task.status = TaskStatus.COMPLETED
             task.completed_at = datetime.now(UTC)
 
