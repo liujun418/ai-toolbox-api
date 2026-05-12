@@ -9,7 +9,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import User, UserRole, Task, TaskStatus, Transaction
+from app.models import User, Task, TaskStatus, Transaction
 from app.schemas.admin import (
     AdminStatsResponse,
     AdminUserResponse,
@@ -30,7 +30,7 @@ router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 def require_admin(user: User = Depends(lambda: None)) -> User:
     """Dependency that enforces admin role. Must be used with get_current_user."""
-    if user.role != UserRole.ADMIN:
+    if user.role != "admin":
         logger.warning("Non-admin user %s attempted admin access", user.email)
         raise HTTPException(status_code=403, detail="Admin access required")
     return user
@@ -41,7 +41,7 @@ def _admin_user(user: User) -> dict:
         "id": user.id,
         "email": user.email,
         "name": user.name,
-        "role": user.role.value if isinstance(user.role, UserRole) else user.role,
+        "role": user.role,
         "credits": user.credits,
         "email_verified": user.email_verified,
         "created_at": user.created_at,
@@ -58,7 +58,7 @@ def _get_admin_user(
     """Composite: authenticate + check admin role."""
     from app.routers.auth import get_current_user
     user = get_current_user(credentials=credentials, db=db)
-    if user.role != UserRole.ADMIN:
+    if user.role != "admin":
         logger.warning("Non-admin user %s attempted admin access", user.email)
         raise HTTPException(status_code=403, detail="Admin access required")
     return user
@@ -279,8 +279,8 @@ def set_user_role(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    old_role = user.role.value if isinstance(user.role, UserRole) else user.role
-    user.role = UserRole(req.role)
+    old_role = user.role
+    user.role = req.role
     db.commit()
 
     logger.info("Admin %s changed role for %s: %s -> %s", admin.email, user.email, old_role, req.role)

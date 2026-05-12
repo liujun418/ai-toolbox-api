@@ -28,7 +28,7 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
     name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
-    role: Mapped[UserRole] = mapped_column(SAEnum(UserRole), default=UserRole.USER)
+    role: Mapped[str] = mapped_column(String(20), default="user")
     credits: Mapped[float] = mapped_column(Float, default=5.0)
     email_verified: Mapped[bool] = mapped_column(default=False)
     verification_token: Mapped[str | None] = mapped_column(String(255), nullable=True)
