@@ -71,6 +71,35 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class ForgotPasswordRequest(BaseModel):
+    email: str
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str = Field(..., min_length=6)
+
+
+class ChangePasswordRequest(BaseModel):
+    old_password: str
+    new_password: str = Field(..., min_length=6)
+
+
+class UpdateProfileRequest(BaseModel):
+    name: str | None = None
+    email: str | None = None
+
+
+class TaskListResponse(BaseModel):
+    tasks: list[TaskResponse]
+    total: int
+
+
+class TransactionListResponse(BaseModel):
+    transactions: list[TransactionResponse]
+    total: int
+
+
 class TokenResponse(BaseModel):
     access_token: str
     user: UserResponse

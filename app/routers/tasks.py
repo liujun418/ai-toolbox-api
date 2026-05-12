@@ -1,8 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session, joinedload
 
 from app.config import settings
 from app.database import get_db
-from app.models import TaskStatus
+from app.models import Task, TaskStatus
+from app.routers.auth import get_current_user, security
 from app.schemas import TaskResponse
 
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
@@ -14,14 +16,15 @@ async def health_check():
 
 
 @router.get("/{task_id}", response_model=TaskResponse)
-async def get_task_status(task_id: str, db=Depends(get_db)):
-    """Get task status and result URL."""
-    from sqlalchemy.orm import joinedload
-    from app.models import Task
-
+async def get_task_status(
+    task_id: str,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    """Get task status and result URL. Authenticated — users can only see their own tasks."""
     task = (
         db.query(Task)
-        .filter(Task.id == task_id)
+        .filter(Task.id == task_id, Task.user_id == user.id)
         .options(joinedload(Task.user))
         .first()
     )
