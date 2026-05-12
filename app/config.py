@@ -14,6 +14,13 @@ class Settings(BaseSettings):
     FRONTEND_URL: str = "http://localhost:3000"
     RESEND_API_KEY: str = ""
 
+    # Image processing limits
+    MAX_IMAGE_SIZE_BYTES: int = 10 * 1024 * 1024  # 10MB
+    MAX_IMAGE_DIMENSION: int = 4096
+    MAX_TEXT_LENGTH: int = 8000
+    IMAGE_TOOLS_MAX_FILE_SIZE: int = 10 * 1024 * 1024  # 10MB
+    REPLICATE_TIMEOUT_SECONDS: int = 120
+
     class Config:
         env_file = ".env"
 

@@ -1,127 +1,150 @@
-"""Replicate API service for AI image processing."""
+"""Replicate API service — async-wrapped, prompt-templated, retry-enabled."""
+
+import asyncio
+import logging
 
 import replicate
 
 from app.config import settings
+from app.services.prompt_templates import (
+    TOOL_PROMPTS,
+    STYLE_PROMPTS,
+    AVATAR_PROMPTS,
+    PromptTemplate,
+)
+from app.services.retry import retry_with_backoff
+
+logger = logging.getLogger(__name__)
 
 
-def get_replicate():
+def _get_client():
     """Get authenticated Replicate client."""
     return replicate.Client(api_token=settings.REPLICATE_API_TOKEN)
 
 
-async def run_background_remover(image_url: str) -> str:
-    """Remove background from image using rembg model.
-    Returns URL of output image."""
-    client = get_replicate()
-    output = client.run(
-        "cjwbw/rembg:fb8af171cfa1616ddcf1242c093f9c46bcada5ad4cf6f2fbe8b81b330ec5c003",
-        input={"image": image_url},
-    )
-    # Replicate returns a file-like object or URL
-    return str(output)
+async def _run_model(model: str, input: dict) -> any:
+    """Run a Replicate model in a thread to avoid blocking the event loop."""
+    client = _get_client()
+    return await asyncio.to_thread(client.run, model, input=input)
 
 
-async def run_watermark_removal(image_url: str, mask_url: str) -> str:
-    """Remove watermarks/logos using BRIA Eraser (purpose-built inpainting).
+# ── Background Remover ────────────────────────────────────────────
 
-    Takes image + mask and outputs a cleaned image where the masked area
-    is seamlessly reconstructed from surrounding context.
-    """
-    client = get_replicate()
-    output = client.run(
-        "bria/eraser:893e924eecc119a0c5fbfa5d98401118dcbf0662574eb8d2c01be5749756cbd4",
-        input={
-            "image": image_url,
-            "mask": mask_url,
-        },
-    )
-    return str(output)
+async def run_background_remover(image_url: str) -> tuple[str, str | None]:
+    """Remove background from image. Returns (output_url, replicate_id)."""
+    async def _call():
+        return await _run_model(
+            TOOL_PROMPTS["background-remover"].model,
+            input={"image": image_url},
+        )
+    output = await retry_with_backoff(_call)
+    return str(output), None
 
 
-async def run_photo_restoration(image_url: str, colorize: bool = False) -> str:
-    """Restore old/damaged photo using GFPGAN."""
-    client = get_replicate()
-    output = client.run(
-        "xinntiao/gfpgan:92296352d6ba42479f5c1629c5a2007e5cc09a71a08e2695d3e3d27e11069496",
-        input={
-            "img": image_url,
-            "version": "v1.4",
-            "scale": 2,
-            "weight": 0.5,
-        },
-    )
-    return str(output)
+# ── Watermark Remover ─────────────────────────────────────────────
 
+async def run_watermark_removal(image_url: str, mask_url: str) -> tuple[str, str | None]:
+    """Remove watermarks using BRIA Eraser. Returns (output_url, replicate_id)."""
+    async def _call():
+        return await _run_model(
+            TOOL_PROMPTS["watermark-remover"].model,
+            input={"image": image_url, "mask": mask_url},
+        )
+    output = await retry_with_backoff(_call)
+    return str(output), None
+
+
+# ── Photo Restorer ────────────────────────────────────────────────
+
+async def run_photo_restoration(image_url: str) -> tuple[str, str | None]:
+    """Restore old/damaged photo using GFPGAN. Returns (output_url, replicate_id)."""
+    tpl = TOOL_PROMPTS["photo-restorer"]
+    async def _call():
+        return await _run_model(
+            tpl.model,
+            input={"img": image_url, **tpl.default_params},
+        )
+    output = await retry_with_backoff(_call)
+    return str(output), None
+
+
+# ── Avatar Generator ──────────────────────────────────────────────
 
 async def run_avatar_generation(
     image_url: str,
     style: str = "cartoon",
-) -> list[str]:
-    """Generate avatar/cartoon from photo using SDXL.
-    Returns list of generated image URLs."""
-    client = get_replicate()
-    # SDXL img2img for avatar generation
-    output = client.run(
-        "stability-ai/sdxl:7762fd07cf82c948538e41f63f77d685e02b063e37e496e96eefd46c929f9bdc",
-        input={
-            "prompt": f"cartoon avatar portrait, anime style, vibrant colors, {style}",
-            "image": image_url,
-            "prompt_strength": 0.6,
-            "num_outputs": 4,
-            "num_inference_steps": 25,
-        },
+    user_prompt: str = "",
+) -> tuple[list[str], str | None]:
+    """Generate avatar from photo using SDXL. Returns (url_list, replicate_id)."""
+    tpl = TOOL_PROMPTS["avatar-generator"]
+    avatar_style = AVATAR_PROMPTS.get(style, AVATAR_PROMPTS["cartoon"])
+    full_prompt = tpl.positive_prompt.format(
+        user_prompt=f"{avatar_style}, {user_prompt}" if user_prompt else avatar_style
     )
-    return [str(u) for u in output]
 
-
-async def run_image_upscaler(image_url: str, scale: int = 2) -> str:
-    """Upscale image using Real-ESRGAN super-resolution.
-    Returns URL of upscaled image. Scale: 2 or 4."""
-    client = get_replicate()
-    output = client.run(
-        "nightmareai/real-esrgan",
-        input={
-            "image": image_url,
-            "scale": scale,
-            "face_enhance": True,
-        },
-    )
-    return str(output)
-
-
-async def run_style_transfer(image_url: str, style: str = "oil-painting") -> str:
-    """Transform image into artistic style (oil-painting, watercolor, anime, sketch).
-    Returns URL of stylized image."""
-    client = get_replicate()
-
-    style_prompts = {
-        "oil-painting": "oil painting style, thick brush strokes, rich colors, impressionist",
-        "watercolor": "watercolor painting style, soft edges, translucent colors, artistic",
-        "anime": "anime art style, cel shading, vibrant colors, manga illustration",
-        "sketch": "pencil sketch style, black and white drawing, detailed line art",
+    inp = {
+        "prompt": full_prompt,
+        "image": image_url,
+        **tpl.default_params,
     }
-    prompt = style_prompts.get(style, style_prompts["oil-painting"])
+    if tpl.negative_prompt:
+        inp["negative_prompt"] = tpl.negative_prompt
 
-    output = client.run(
-        "stability-ai/sdxl:7762fd07cf82c948538e41f63f77d685e02b063e37e496e96eefd46c929f9bdc",
-        input={
-            "prompt": prompt,
-            "image": image_url,
-            "prompt_strength": 0.6,
-            "num_outputs": 1,
-            "num_inference_steps": 25,
-        },
-    )
+    async def _call():
+        return await _run_model(tpl.model, input=inp)
+
+    output = await retry_with_backoff(_call)
+    return [str(u) for u in output], None
+
+
+# ── Image Upscaler ────────────────────────────────────────────────
+
+async def run_image_upscaler(image_url: str, scale: int = 2) -> tuple[str, str | None]:
+    """Upscale image. Returns (output_url, replicate_id)."""
+    tpl = TOOL_PROMPTS["image-upscaler"]
+    async def _call():
+        return await _run_model(
+            tpl.model,
+            input={"image": image_url, "scale": scale, **tpl.default_params},
+        )
+    output = await retry_with_backoff(_call)
+    return str(output), None
+
+
+# ── Style Transfer ────────────────────────────────────────────────
+
+async def run_style_transfer(
+    image_url: str,
+    style: str = "oil-painting",
+    user_prompt: str = "",
+) -> tuple[str, str | None]:
+    """Transform image into artistic style. Returns (output_url, replicate_id)."""
+    tpl = TOOL_PROMPTS["style-transfer"]
+    style_text = STYLE_PROMPTS.get(style, STYLE_PROMPTS["oil-painting"])
+    full_prompt = style_text.format(
+        user_prompt=user_prompt
+    ).strip()
+
+    inp = {
+        "prompt": full_prompt,
+        "image": image_url,
+        **tpl.default_params,
+    }
+    if tpl.negative_prompt:
+        inp["negative_prompt"] = tpl.negative_prompt
+
+    async def _call():
+        return await _run_model(tpl.model, input=inp)
+
+    output = await retry_with_backoff(_call)
     urls = [str(u) for u in output]
-    return urls[0] if urls else ""
+    return urls[0] if urls else "", None
 
+
+# ── Text Polish (unchanged — no image processing) ─────────────────
 
 async def run_text_polish(text: str, mode: str = "polish") -> str:
-    """Polish, rewrite, shorten, or expand text using LLM.
-    Returns processed text."""
-    client = get_replicate()
-
+    """Polish, rewrite, shorten, or expand text using LLM."""
     mode_instructions = {
         "polish": "Improve the grammar, spelling, and clarity of the given text while keeping the same meaning. Return only the improved text, no explanations.",
         "rewrite": "Rewrite the given text with different wording while keeping the same meaning. Return only the rewritten text, no explanations.",
@@ -130,13 +153,18 @@ async def run_text_polish(text: str, mode: str = "polish") -> str:
     }
     instruction = mode_instructions.get(mode, mode_instructions["polish"])
 
-    output = client.run(
-        "meta/meta-llama-3.1-70b-instruct:baf226e1f0cc30952e39198a7dc1e8083d2686196464e0665e2d88108db29c61",
-        input={
-            "system_prompt": instruction,
-            "prompt": text,
-            "max_tokens": 4096,
-            "temperature": 0.7,
-        },
-    )
+    async def _call():
+        client = _get_client()
+        return await asyncio.to_thread(
+            client.run,
+            "meta/meta-llama-3.1-70b-instruct:baf226e1f0cc30952e39198a7dc1e8083d2686196464e0665e2d88108db29c61",
+            input={
+                "system_prompt": instruction,
+                "prompt": text,
+                "max_tokens": 4096,
+                "temperature": 0.7,
+            },
+        )
+
+    output = await retry_with_backoff(_call)
     return "".join(list(output)).strip()

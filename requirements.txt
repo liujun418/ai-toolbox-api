@@ -16,3 +16,4 @@ httpx==0.28.1
 bcrypt==5.0.0
 python-jose[cryptography]==3.3.0
 stripe==11.6.0
+numpy>=1.26.0
