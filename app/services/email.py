@@ -20,7 +20,7 @@ def send_verification_email(to: str, token: str) -> None:
             "https://api.resend.com/emails",
             headers=_headers(),
             json={
-                "from": "AI ToolBox <noreply@toolboxonline.club>",
+                "from": "AI ToolBox <onboarding@resend.com>",
                 "to": [to],
                 "subject": "Verify your email — AI ToolBox",
                 "html": (
@@ -41,7 +41,7 @@ def send_password_reset_email(to: str, token: str) -> None:
             "https://api.resend.com/emails",
             headers=_headers(),
             json={
-                "from": "AI ToolBox <noreply@toolboxonline.club>",
+                "from": "AI ToolBox <onboarding@resend.com>",
                 "to": [to],
                 "subject": "Reset your password — AI ToolBox",
                 "html": (
