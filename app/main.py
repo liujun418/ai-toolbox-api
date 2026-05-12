@@ -27,6 +27,7 @@ def _ensure_db_columns():
         "verification_token": "VARCHAR(255)",
         "reset_token": "VARCHAR(255)",
         "reset_token_expires": "TIMESTAMP WITH TIME ZONE",
+        "role": "VARCHAR(20) DEFAULT 'user'",
     }
     with engine.begin() as conn:
         for col_name, col_type in needed.items():
