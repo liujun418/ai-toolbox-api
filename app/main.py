@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.database import engine
-from app.routers import auth, tasks, uploads, payments
+from app.routers import auth, tasks, uploads, payments, admin
 
 logging.basicConfig(
     level=logging.INFO,
@@ -61,6 +61,7 @@ app.include_router(auth.router)
 app.include_router(tasks.router)
 app.include_router(uploads.router)
 app.include_router(payments.router)
+app.include_router(admin.router)
 
 
 @app.get("/")

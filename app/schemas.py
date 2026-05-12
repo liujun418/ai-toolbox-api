@@ -32,7 +32,9 @@ class UserResponse(BaseModel):
     id: str
     email: str
     name: str | None = None
+    role: str
     credits: float
+    email_verified: bool = False
     created_at: datetime
 
     class Config:
