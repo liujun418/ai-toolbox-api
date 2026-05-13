@@ -5,6 +5,7 @@ import uuid
 from datetime import datetime, UTC, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -52,7 +53,7 @@ def _admin_user(user: User) -> dict:
 # We compose dependencies at the endpoint level, not at router level.
 
 def _get_admin_user(
-    credentials,
+    credentials: HTTPAuthorizationCredentials = Depends(HTTPBearer()),
     db: Session = Depends(get_db),
 ) -> User:
     """Composite: authenticate + check admin role."""
