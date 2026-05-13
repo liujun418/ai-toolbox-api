@@ -60,6 +60,25 @@ async def run_watermark_removal(image_url: str, mask_url: str) -> tuple[str, str
     return str(output), None
 
 
+async def run_watermark_removal_auto(image_url: str) -> tuple[str, str | None]:
+    """Auto-detect and remove watermarks using BRIA Eraser (prompt-only, no mask).
+    Returns (output_url, replicate_id). Raises if output is empty."""
+    async def _call():
+        return await _run_model(
+            TOOL_PROMPTS["watermark-remover"].model,
+            input={
+                "image": image_url,
+                "prompt": "watermark, text overlay, logo, signature",
+            },
+        )
+    output = await retry_with_backoff(_call)
+    if isinstance(output, list):
+        if not output:
+            raise ValueError("BRIA Eraser returned empty output — no watermarks detected")
+        return str(output[0]), None
+    return str(output), None
+
+
 # ── Photo Restorer ────────────────────────────────────────────────
 
 async def run_photo_restoration(image_url: str) -> tuple[str, str | None]:
