@@ -50,19 +50,11 @@ TOOL_PROMPTS: dict[str, PromptTemplate] = {
     ),
 
     "watermark-remover": PromptTemplate(
-        model="black-forest-labs/flux-fill-dev",
-        positive_prompt=(
-            "clean seamless natural background texture matching the surrounding area, "
-            "no watermark, no logo, no text, no signature, smooth blending, "
-            "consistent lighting and color, photorealistic details, "
-            "undetectable repair, professional restoration"
-        ),
-        negative_prompt=NEGATIVE_INPAINTING,
+        model="dpakkk/image-object-removal:40e67426e1bf78199d78b36580389fbbdcb4c9cdc2bc2b489e99d713f167b3c5",
+        positive_prompt="",    # LaMa is mask-only, no prompt needed
+        negative_prompt="",    # LaMa doesn't support negative prompts
         default_params={
-            "guidance": 30,
-            "num_inference_steps": 50,
-            "num_outputs": 1,
-            "output_format": "png",
+            "hd_strategy_resize_limit": 1200,
         },
     ),
 

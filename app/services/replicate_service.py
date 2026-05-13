@@ -49,23 +49,20 @@ async def run_background_remover(image_url: str) -> tuple[str, str | None]:
 # ── Watermark Remover ─────────────────────────────────────────────
 
 async def run_watermark_removal(image_url: str, mask_url: str) -> tuple[str, str | None]:
-    """Remove watermarks using FLUX Fill Inpainting. Requires mask.
+    """Remove watermarks using LaMa Inpainting (context-aware fill).
     Returns (output_url, replicate_id)."""
     tpl = TOOL_PROMPTS["watermark-remover"]
     inp = {
         "image": image_url,
         "mask": mask_url,
-        "prompt": tpl.positive_prompt,
         **tpl.default_params,
     }
-    if tpl.negative_prompt:
-        inp["negative_prompt"] = tpl.negative_prompt
 
     async def _call():
         return await _run_model(tpl.model, input=inp)
 
     output = await retry_with_backoff(_call)
-    # FLUX Fill returns a list of URLs
+    # LaMa returns a single URL or list
     if isinstance(output, list):
         if not output:
             raise ValueError("Inpainting model returned empty output")
@@ -81,11 +78,14 @@ FLORENCE2_MODEL = "lucataco/florence-2-large:da53547e17d45b9cfb48174b2f18af8b83c
 _WATERMARK_KEYWORDS = {
     "text", "watermark", "logo", "stamp", "signature", "label", "caption",
     "overlay", "brand", "copyright", "mark", "icon", "badge", "tag",
+    "letter", "word", "character", "symbol", "writing", "inscription",
+    "banner", "ribbon", "emblem", "crest", "seal",
 }
 
 # Short labels (1-4 chars) at edges/corners are often watermarks
 _SHORT_LABEL_KEYWORDS = {
     "www", "http", ".com", ".net", ".org", "©", "®", "tm",
+    "url", "site", "link",
 }
 
 
@@ -135,8 +135,14 @@ async def auto_detect_watermark(image_url: str) -> bytes | None:
             selected.append(bbox)
 
     if not selected:
-        # No obvious watermark detected — return None
-        return None
+        # No keyword match — use all detected regions as fallback
+        # (Florence may label watermarks with generic terms)
+        if len(bboxes) <= 8:
+            selected = bboxes
+            logger.info("Auto-detect: using all %d regions as fallback", len(bboxes))
+        else:
+            logger.info("Auto-detect: too many regions (%d), no clear watermark found", len(bboxes))
+            return None
 
     # Build mask from selected bounding boxes
     # We need image dimensions — fetch the image to get size
@@ -156,9 +162,13 @@ async def auto_detect_watermark(image_url: str) -> bytes | None:
         y1 = int(bbox[1] / 1000 * h)
         x2 = int(bbox[2] / 1000 * w)
         y2 = int(bbox[3] / 1000 * h)
-        # Add padding around the detected region
-        pad = max(5, min(w, h) // 50)
+        # Add generous padding for LaMa (better context for inpainting)
+        pad = max(8, min(w, h) // 40)
         draw.rectangle([x1 - pad, y1 - pad, x2 + pad, y2 + pad], fill=255)
+
+    # Dilate mask slightly for cleaner inpainting edges
+    from PIL import ImageFilter
+    mask = mask.filter(ImageFilter.MaxFilter(3))
 
     buf = io_module.BytesIO()
     mask.save(buf, format="PNG")
