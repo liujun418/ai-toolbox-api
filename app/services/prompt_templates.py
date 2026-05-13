@@ -50,10 +50,12 @@ TOOL_PROMPTS: dict[str, PromptTemplate] = {
     ),
 
     "watermark-remover": PromptTemplate(
-        model="bria/eraser:893e924eecc119a0c5fbfa5d98401118dcbf0662574eb8d2c01be5749756cbd4",
+        model="bria/eraser",
         positive_prompt="",
-        negative_prompt="blurry, smudged, unnatural, low quality artifacts, jagged edges",
-        default_params={},
+        negative_prompt="",
+        default_params={
+            "mask_type": "manual",
+        },
     ),
 
     "photo-restorer": PromptTemplate(

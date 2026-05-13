@@ -51,11 +51,15 @@ async def run_background_remover(image_url: str) -> tuple[str, str | None]:
 async def run_watermark_removal(image_url: str, mask_url: str) -> tuple[str, str | None]:
     """Remove watermarks using BRIA Eraser (professional inpainting).
     Returns (output_url, replicate_id). Raises if output is empty."""
+    tpl = TOOL_PROMPTS["watermark-remover"]
+    inp = {
+        "image": image_url,
+        "mask": mask_url,
+        **tpl.default_params,
+    }
     async def _call():
-        return await _run_model(
-            TOOL_PROMPTS["watermark-remover"].model,
-            input={"image": image_url, "mask": mask_url},
-        )
+        return await _run_model(tpl.model, input=inp)
+
     output = await retry_with_backoff(_call)
     if isinstance(output, list):
         if not output:
@@ -85,88 +89,122 @@ _SHORT_LABEL_KEYWORDS = {
 
 async def auto_detect_watermark(image_url: str) -> bytes | None:
     """Use Florence-2 to detect watermark regions and generate a mask.
+    Tries dense region caption first, falls back to OCR for text watermarks.
     Returns mask PNG bytes (white = watermark area) or None if no watermark found."""
 
-    async def _detect():
-        return await _run_model(
-            FLORENCE2_MODEL,
-            input={"image": image_url, "task": "dense region caption"},
-        )
+    bboxes = []
+    labels = []
 
+    # Strategy 1: dense region caption
     try:
-        result = await retry_with_backoff(_detect, max_retries=1, base_delay=2)
-        logger.info("Florence-2 raw result type: %s", type(result).__name__)
+        async def _detect_dense():
+            return await _run_model(
+                FLORENCE2_MODEL,
+                input={"image": image_url, "task": "dense region caption"},
+            )
+        result = await retry_with_backoff(_detect_dense, max_retries=1, base_delay=2)
+        logger.info("Florence-2 dense caption result type: %s", type(result).__name__)
+
+        if isinstance(result, dict):
+            caption_data = result.get("<DENSE_REGION_CAPTION>", {})
+        elif isinstance(result, str):
+            import json
+            try:
+                parsed = json.loads(result)
+                caption_data = parsed.get("<DENSE_REGION_CAPTION>", {})
+            except (json.JSONDecodeError, AttributeError):
+                caption_data = {}
+        else:
+            caption_data = {}
+
+        bboxes = caption_data.get("bboxes", [])
+        labels = caption_data.get("labels", [])
+        logger.info("Florence-2 dense: %d regions, labels=%s",
+            len(labels), labels[:5] if labels else "none")
     except Exception as e:
-        logger.warning("Florence-2 detection failed: %s", str(e))
-        return None
+        logger.warning("Florence-2 dense caption failed: %s", str(e))
 
-    # Parse Florence-2 output: {"<DENSE_REGION_CAPTION>": {"bboxes": [...], "labels": [...]}}
-    if isinstance(result, dict):
-        caption_data = result.get("<DENSE_REGION_CAPTION>", {})
-    elif isinstance(result, str):
-        import json
+    # Strategy 2: OCR fallback for text-based watermarks
+    if not bboxes:
         try:
-            parsed = json.loads(result)
-            caption_data = parsed.get("<DENSE_REGION_CAPTION>", {})
-        except (json.JSONDecodeError, AttributeError):
-            logger.warning("Florence-2: could not parse JSON result")
-            return None
-    else:
-        logger.warning("Florence-2: unexpected result type %s", type(result))
+            async def _detect_ocr():
+                return await _run_model(
+                    FLORENCE2_MODEL,
+                    input={"image": image_url, "task": "ocr"},
+                )
+            result = await retry_with_backoff(_detect_ocr, max_retries=1, base_delay=2)
+
+            if isinstance(result, dict):
+                ocr_data = result.get("<OCR>", {})
+            elif isinstance(result, str):
+                import json
+                try:
+                    parsed = json.loads(result)
+                    ocr_data = parsed.get("<OCR>", {})
+                except (json.JSONDecodeError, AttributeError):
+                    ocr_data = {}
+            else:
+                ocr_data = {}
+
+            ocr_bboxes = ocr_data.get("bboxes", [])
+            ocr_labels = ocr_data.get("labels", [])
+            logger.info("Florence-2 OCR: %d text regions, labels=%s",
+                len(ocr_labels), ocr_labels[:5] if ocr_labels else "none")
+
+            if ocr_bboxes:
+                bboxes = ocr_bboxes
+                labels = ["text"] * len(ocr_bboxes)  # All OCR results are text
+        except Exception as e:
+            logger.warning("Florence-2 OCR failed: %s", str(e))
+
+    if not bboxes:
+        logger.info("Florence-2: no regions found from either detection method")
         return None
 
-    bboxes = caption_data.get("bboxes", [])
-    labels = caption_data.get("labels", [])
-
-    logger.info("Florence-2 found %d regions, sample labels: %s",
-        len(labels), labels[:5] if labels else "none")
-
-    if not bboxes or not labels:
-        logger.info("Florence-2: no bounding boxes or labels in result")
-        return None
-
-    # Filter: only keep regions that look like watermark/text overlays
+    # Filter: prefer text/watermark-like regions, but use all if few regions
     selected = []
     for bbox, label in zip(bboxes, labels):
-        label_lower = label.lower().strip()
+        label_lower = str(label).lower().strip()
         if any(kw in label_lower for kw in _WATERMARK_KEYWORDS):
             selected.append(bbox)
-        elif len(label) <= 4 and any(kw in label_lower for kw in _SHORT_LABEL_KEYWORDS):
+        elif len(label_lower) <= 4 and any(kw in label_lower for kw in _SHORT_LABEL_KEYWORDS):
             selected.append(bbox)
+        elif label_lower == "text":
+            selected.append(bbox)  # OCR text is always a candidate
 
-    if not selected:
-        # No keyword match — use all detected regions as fallback
-        # (Florence may label watermarks with generic terms)
-        if len(bboxes) <= 8:
-            selected = bboxes
-            logger.info("Auto-detect: using all %d regions as fallback", len(bboxes))
-        else:
-            logger.info("Auto-detect: too many regions (%d), no clear watermark found", len(bboxes))
-            return None
+    if not selected and len(bboxes) <= 20:
+        selected = bboxes  # Fallback to all regions if not too many
+        logger.info("Auto-detect: using all %d regions as fallback", len(bboxes))
+    elif not selected:
+        logger.info("Auto-detect: too many regions (%d), no clear watermark found", len(bboxes))
+        return None
+    else:
+        logger.info("Auto-detect: selected %d/%d regions as watermark candidates",
+            len(selected), len(bboxes))
 
     # Build mask from selected bounding boxes
-    # We need image dimensions — fetch the image to get size
     try:
         import httpx
         resp = httpx.get(image_url, follow_redirects=True, timeout=15)
         img = Image.open(io_module.BytesIO(resp.content))
         w, h = img.size
-    except Exception:
+    except Exception as e:
+        logger.warning("Auto-detect: failed to fetch image for dimensions: %s", str(e))
         return None
 
     mask = Image.new("L", (w, h), 0)
     draw = ImageDraw.Draw(mask)
     for bbox in selected:
-        # Florence-2 bbox format: [x1, y1, x2, y2] — relative coordinates (0-1000)
-        x1 = int(bbox[0] / 1000 * w)
-        y1 = int(bbox[1] / 1000 * h)
-        x2 = int(bbox[2] / 1000 * w)
-        y2 = int(bbox[3] / 1000 * h)
-        # Add generous padding for LaMa (better context for inpainting)
-        pad = max(8, min(w, h) // 40)
-        draw.rectangle([x1 - pad, y1 - pad, x2 + pad, y2 + pad], fill=255)
+        x1 = max(0, int(bbox[0] / 1000 * w))
+        y1 = max(0, int(bbox[1] / 1000 * h))
+        x2 = min(w, int(bbox[2] / 1000 * w))
+        y2 = min(h, int(bbox[3] / 1000 * h))
+        pad = max(10, min(w, h) // 30)
+        draw.rectangle([
+            max(0, x1 - pad), max(0, y1 - pad),
+            min(w, x2 + pad), min(h, y2 + pad)
+        ], fill=255)
 
-    # Dilate mask slightly for cleaner inpainting edges
     from PIL import ImageFilter
     mask = mask.filter(ImageFilter.MaxFilter(3))
 
