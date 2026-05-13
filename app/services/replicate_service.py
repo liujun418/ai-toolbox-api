@@ -13,6 +13,8 @@ from app.services.prompt_templates import (
     TOOL_PROMPTS,
     STYLE_PROMPTS,
     AVATAR_PROMPTS,
+    AVATAR_NEGATIVE_PROMPTS,
+    AVATAR_PARAMS,
     PromptTemplate,
 )
 from app.services.retry import retry_with_backoff
@@ -174,22 +176,27 @@ async def run_photo_restoration(image_url: str) -> tuple[str, str | None]:
 async def run_avatar_generation(
     image_url: str,
     style: str = "cartoon",
-    user_prompt: str = "",
 ) -> tuple[list[str], str | None]:
-    """Generate avatar from photo using SDXL. Returns (url_list, replicate_id)."""
+    """Generate avatar from photo using SDXL with per-style locked params.
+    Returns (url_list, replicate_id)."""
     tpl = TOOL_PROMPTS["avatar-generator"]
+
+    # Per-style positive prompt
     avatar_style = AVATAR_PROMPTS.get(style, AVATAR_PROMPTS["cartoon"])
-    full_prompt = tpl.positive_prompt.format(
-        user_prompt=f"{avatar_style}, {user_prompt}" if user_prompt else avatar_style
-    )
+    full_prompt = tpl.positive_prompt.format(user_prompt=avatar_style)
+
+    # Per-style locked generation parameters
+    params = AVATAR_PARAMS.get(style, AVATAR_PARAMS["cartoon"])
+
+    # Per-style negative prompt
+    negative = AVATAR_NEGATIVE_PROMPTS.get(style, "")
 
     inp = {
         "prompt": full_prompt,
         "image": image_url,
-        **tpl.default_params,
+        **params,
+        "negative_prompt": negative,
     }
-    if tpl.negative_prompt:
-        inp["negative_prompt"] = tpl.negative_prompt
 
     async def _call():
         return await _run_model(tpl.model, input=inp)

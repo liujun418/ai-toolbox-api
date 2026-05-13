@@ -16,7 +16,7 @@ from app.database import get_db
 from app.models import Task, TaskStatus, Transaction, User
 from app.routers.auth import get_current_user
 from app.schemas import TaskResponse, CREDIT_COSTS
-from app.services.image_processing import preprocess_image, postprocess_image
+from app.services.image_processing import preprocess_image, preprocess_avatar, postprocess_image
 from app.services.storage import (
     generate_upload_key,
     generate_download_key,
@@ -80,6 +80,7 @@ async def upload_and_process(
     tool_type: str,
     file: UploadFile = File(...),
     prompt: str | None = Form(default=None),
+    style: str | None = Form(default=None),
     mask: UploadFile | None = File(default=None),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -157,7 +158,10 @@ async def upload_and_process(
         if tool_type in IMAGE_TOOL_TYPES:
             keep_alpha = tool_type == "background-remover"
             try:
-                file_bytes, img_meta = preprocess_image(file_bytes, keep_alpha=keep_alpha)
+                if tool_type == "avatar-generator":
+                    file_bytes, img_meta = preprocess_avatar(file_bytes)
+                else:
+                    file_bytes, img_meta = preprocess_image(file_bytes, keep_alpha=keep_alpha)
                 logger.info(
                     "Preprocessed image for task %s: %dx%d -> %s (%d bytes)",
                     task_id,
@@ -251,14 +255,11 @@ async def upload_and_process(
             task.completed_at = datetime.now(UTC)
 
         elif tool_type == "avatar-generator":
-            style = "cartoon"
-            if prompt:
-                for s in ["cartoon", "anime", "professional", "pixel-art", "watercolor", "oil-painting"]:
-                    if s in prompt.lower():
-                        style = s
-                        break
-            user_desc = prompt.replace(style, "").strip() if prompt else ""
-            outputs, replicate_id = await run_avatar_generation(image_url, style, user_desc)
+            valid_styles = {"cartoon", "anime", "professional", "pixel-art", "watercolor", "oil-painting"}
+            requested_style = (style or "").lower()
+            if requested_style not in valid_styles:
+                requested_style = "cartoon"
+            outputs, replicate_id = await run_avatar_generation(image_url, requested_style)
             task.output_file_url = outputs[0] if isinstance(outputs, list) and outputs else str(outputs)
             task.status = TaskStatus.COMPLETED
             task.completed_at = datetime.now(UTC)

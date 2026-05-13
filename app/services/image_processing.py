@@ -76,6 +76,61 @@ def preprocess_image(image_bytes: bytes, keep_alpha: bool = False) -> tuple[byte
     return result, metadata
 
 
+def preprocess_avatar(image_bytes: bytes) -> tuple[bytes, dict]:
+    """Preprocess an uploaded photo for avatar generation.
+
+    - Center square crop (shortest edge) for consistent portrait framing
+    - Resize to 1024x1024 (SDXL optimal resolution)
+    - Convert to RGB, white background for alpha images
+    - Output as high-quality JPEG
+
+    Returns (processed_bytes, metadata_dict).
+    """
+    img = Image.open(io.BytesIO(image_bytes))
+    orig_w, orig_h = img.size
+
+    metadata = {
+        "original_width": orig_w,
+        "original_height": orig_h,
+        "original_format": str(img.format) if img.format else "unknown",
+    }
+
+    # Center square crop: use shortest edge
+    crop_size = min(orig_w, orig_h)
+    left = (orig_w - crop_size) // 2
+    top = (orig_h - crop_size) // 2
+    right = left + crop_size
+    bottom = top + crop_size
+    img = img.crop((left, top, right, bottom))
+    metadata["cropped"] = True
+    metadata["crop_size"] = crop_size
+
+    # Resize to SDXL optimal resolution
+    img = img.resize((1024, 1024), Image.LANCZOS)
+    metadata["resized"] = True
+    metadata["new_width"] = 1024
+    metadata["new_height"] = 1024
+
+    # Color mode: remove alpha, composite on white
+    if img.mode in ("RGBA", "LA", "PA"):
+        background = Image.new("RGB", img.size, (255, 255, 255))
+        if img.mode == "RGBA":
+            background.paste(img, mask=img.split()[3])
+        else:
+            background.paste(img)
+        img = background
+    elif img.mode != "RGB":
+        img = img.convert("RGB")
+
+    # Output as JPEG with good quality
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=92, optimize=True)
+    buf.seek(0)
+    result = buf.read()
+    metadata["processed_size"] = len(result)
+    return result, metadata
+
+
 def postprocess_image(image_bytes: bytes) -> bytes:
     """Post-process AI output for consistent quality and format.
 
@@ -95,16 +150,20 @@ def postprocess_image(image_bytes: bytes) -> bytes:
         elif img.mode != "RGB":
             img = img.convert("RGB")
 
-        # Mild sharpening
-        img = img.filter(ImageFilter.UnsharpMask(radius=2, percent=150, threshold=3))
+        # Sharpening (enhanced for crisp output)
+        img = img.filter(ImageFilter.UnsharpMask(radius=1.5, percent=180, threshold=3))
 
-        # Subtle contrast boost for vibrancy
+        # Contrast boost for vibrancy
         enhancer = ImageEnhance.Contrast(img)
-        img = enhancer.enhance(1.05)
+        img = enhancer.enhance(1.06)
 
-        # Output as WebP
+        # Subtle saturation boost
+        sat_enhancer = ImageEnhance.Color(img)
+        img = sat_enhancer.enhance(1.03)
+
+        # Output as WebP (quality 90 for crisp detail)
         buf = io.BytesIO()
-        img.save(buf, format="WEBP", quality=WEBP_QUALITY, optimize=True)
+        img.save(buf, format="WEBP", quality=90, optimize=True)
         buf.seek(0)
         return buf.read()
     except Exception:

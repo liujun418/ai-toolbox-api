@@ -61,15 +61,14 @@ TOOL_PROMPTS: dict[str, PromptTemplate] = {
     "avatar-generator": PromptTemplate(
         model="stability-ai/sdxl:7762fd07cf82c948538e41f63f77d685e02b063e37e496e96eefd46c929f9bdc",
         positive_prompt=(
-            "high quality digital art portrait, vibrant colors, clean lines, "
-            "professional illustration, detailed face, {user_prompt}"
+            "high quality portrait, detailed face, professional lighting, {user_prompt}"
         ),
-        negative_prompt=NEGATIVE_SDXL,
+        negative_prompt="",  # Per-style negative prompts used instead
         default_params={
-            "prompt_strength": 0.6,
+            "prompt_strength": 0.55,
             "num_outputs": 4,
-            "num_inference_steps": 30,
-            "guidance_scale": 7.5,
+            "num_inference_steps": 40,
+            "guidance_scale": 8.0,
         },
     ),
 
@@ -119,12 +118,126 @@ STYLE_PROMPTS: dict[str, str] = {
     ),
 }
 
-# ── Style-specific prompts for avatar-generator ───────────────────
+# ── Avatar Generator: per-style positive prompts ──────────────────
 AVATAR_PROMPTS: dict[str, str] = {
-    "cartoon": "vibrant cartoon character, bold outlines, flat color style, Pixar-style 3D render, cute and expressive",
-    "anime": "anime character portrait, cel-shaded, big expressive eyes, manga art style, clean linework",
-    "professional": "professional corporate headshot, clean studio lighting, photorealistic, sharp focus, LinkedIn profile photo",
-    "pixel-art": "16-bit pixel art character sprite, retro game art style, clean pixel edges, nostalgic game character",
-    "watercolor": "watercolor portrait illustration, soft washes, delicate brush strokes, fine art gallery style",
-    "oil-painting": "oil painting portrait, thick impasto brush strokes, classical impressionist style, museum quality artwork",
+    "cartoon": (
+        "3D Pixar-style character portrait, smooth skin, expressive face, "
+        "vibrant colors, soft cinematic lighting, cute charming proportions, "
+        "detailed hair strands, professional digital art render, high quality, "
+        "volumetric lighting, subsurface scattering on skin"
+    ),
+    "anime": (
+        "Japanese anime portrait, cel-shaded, large sparkling expressive eyes, "
+        "delicate facial features, soft gradient hair with highlights, clean crisp lineart, "
+        "studio quality key visual, vibrant saturated colors, cherry blossom pink tones, "
+        "Makoto Shinkai anime movie style, high quality"
+    ),
+    "professional": (
+        "photorealistic corporate headshot, professional studio lighting with softbox, "
+        "sharp focus on face, natural skin texture with visible pores, clean neutral background, "
+        "Canon EOS R5, 85mm f/1.4 portrait lens, shallow depth of field, "
+        "LinkedIn profile photo quality, magazine editorial style"
+    ),
+    "pixel-art": (
+        "16-bit pixel art character portrait, clean pixel grid, limited 32-color palette, "
+        "sharp pixel edges, retro RPG sprite style, SNES era game art quality, "
+        "pixel-perfect rendering, nostalgic game character sprite"
+    ),
+    "watercolor": (
+        "watercolor portrait painting, soft translucent washes, delicate flowing brush strokes, "
+        "subtle color bleeding, fine art illustration on textured cold-press paper, "
+        "artistic elegance, ethereal dreamy atmosphere, gallery wall art quality"
+    ),
+    "oil-painting": (
+        "classical oil painting portrait, thick impasto brush strokes with visible texture, "
+        "rich warm earthy palette, dramatic Rembrandt lighting, museum quality artwork, "
+        "canvas texture visible, old master portrait style, golden ratio composition, "
+        "fine art gallery piece"
+    ),
+}
+
+# ── Avatar Generator: per-style negative prompts ──────────────────
+AVATAR_NEGATIVE_PROMPTS: dict[str, str] = {
+    "cartoon": (
+        "deformed face, distorted facial features, extra fingers, mutated hands, "
+        "blurry, low quality, low resolution, ugly, disfigured, bad anatomy, "
+        "asymmetric eyes, crooked mouth, watermark, text, signature, "
+        "worst quality, plastic skin, uncanny valley, disproportioned body, "
+        "missing fingers, fused fingers, poorly drawn face, mutation"
+    ),
+    "anime": (
+        "deformed face, distorted eyes, extra fingers, mutated hands, "
+        "blurry, low quality, low resolution, realistic photo, 3D render, "
+        "western cartoon style, bad anatomy, asymmetric face, crooked mouth, "
+        "watermark, text, signature, worst quality, messy lineart, inconsistent style, "
+        "poorly drawn eyes, missing facial features, disproportioned body"
+    ),
+    "professional": (
+        "deformed face, distorted facial features, extra fingers, mutated hands, "
+        "blurry, low quality, low resolution, cartoon, anime, illustration, "
+        "painting, drawing, 3D render, sketch, bad anatomy, asymmetric eyes, "
+        "crooked mouth, watermark, text, signature, worst quality, "
+        "plastic skin, over-smoothed skin, airbrushed, unnatural skin texture, "
+        "uncanny valley, composite face, photoshop artifacts, poorly drawn face"
+    ),
+    "pixel-art": (
+        "deformed face, distorted facial features, extra fingers, mutated hands, "
+        "blurry, low quality, low resolution, realistic photo, 3D render, "
+        "smooth gradients, anti-aliased edges, high resolution, watermark, "
+        "text, signature, worst quality, bad anatomy, modern graphics, vector art"
+    ),
+    "watercolor": (
+        "deformed face, distorted facial features, extra fingers, mutated hands, "
+        "blurry, low quality, low resolution, digital art, oil painting, "
+        "photorealistic, 3D render, thick paint, bold outlines, cartoon, "
+        "watermark, text, signature, worst quality, bad anatomy, messy execution, "
+        "overworked painting, muddy colors"
+    ),
+    "oil-painting": (
+        "deformed face, distorted facial features, extra fingers, mutated hands, "
+        "blurry, low quality, low resolution, digital art, watercolor, "
+        "photorealistic photograph, 3D render, cartoon, anime, flat colors, "
+        "watermark, text, signature, worst quality, bad anatomy, "
+        "messy brushwork, muddy palette, poor composition, overworked canvas"
+    ),
+}
+
+# ── Avatar Generator: per-style locked generation parameters ──────
+AVATAR_PARAMS: dict[str, dict] = {
+    "cartoon": {
+        "prompt_strength": 0.55,
+        "num_outputs": 4,
+        "num_inference_steps": 40,
+        "guidance_scale": 8.0,
+    },
+    "anime": {
+        "prompt_strength": 0.55,
+        "num_outputs": 4,
+        "num_inference_steps": 40,
+        "guidance_scale": 8.0,
+    },
+    "professional": {
+        "prompt_strength": 0.50,
+        "num_outputs": 4,
+        "num_inference_steps": 50,
+        "guidance_scale": 7.5,
+    },
+    "pixel-art": {
+        "prompt_strength": 0.65,
+        "num_outputs": 4,
+        "num_inference_steps": 30,
+        "guidance_scale": 8.5,
+    },
+    "watercolor": {
+        "prompt_strength": 0.55,
+        "num_outputs": 4,
+        "num_inference_steps": 40,
+        "guidance_scale": 8.0,
+    },
+    "oil-painting": {
+        "prompt_strength": 0.50,
+        "num_outputs": 4,
+        "num_inference_steps": 40,
+        "guidance_scale": 8.0,
+    },
 }
