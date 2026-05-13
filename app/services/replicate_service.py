@@ -95,6 +95,7 @@ async def auto_detect_watermark(image_url: str) -> bytes | None:
 
     try:
         result = await retry_with_backoff(_detect, max_retries=1, base_delay=2)
+        logger.info("Florence-2 raw result type: %s", type(result).__name__)
     except Exception as e:
         logger.warning("Florence-2 detection failed: %s", str(e))
         return None
@@ -103,20 +104,25 @@ async def auto_detect_watermark(image_url: str) -> bytes | None:
     if isinstance(result, dict):
         caption_data = result.get("<DENSE_REGION_CAPTION>", {})
     elif isinstance(result, str):
-        # Some Replicate wrappers return JSON string
         import json
         try:
             parsed = json.loads(result)
             caption_data = parsed.get("<DENSE_REGION_CAPTION>", {})
         except (json.JSONDecodeError, AttributeError):
+            logger.warning("Florence-2: could not parse JSON result")
             return None
     else:
+        logger.warning("Florence-2: unexpected result type %s", type(result))
         return None
 
     bboxes = caption_data.get("bboxes", [])
     labels = caption_data.get("labels", [])
 
+    logger.info("Florence-2 found %d regions, sample labels: %s",
+        len(labels), labels[:5] if labels else "none")
+
     if not bboxes or not labels:
+        logger.info("Florence-2: no bounding boxes or labels in result")
         return None
 
     # Filter: only keep regions that look like watermark/text overlays

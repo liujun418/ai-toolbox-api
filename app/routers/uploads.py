@@ -202,9 +202,12 @@ async def upload_and_process(
                     except ValueError:
                         pass
 
-            if mask is not None and mask.filename and mask.size and mask.size > 0:
-                # Manual keep mode: user-painted mask
+            mask_bytes = None
+            if mask is not None and mask.filename:
                 mask_bytes = await mask.read()
+
+            if mask_bytes and len(mask_bytes) > 100:
+                # Manual keep mode: user-painted mask
                 user_mask = Image.open(io_module.BytesIO(mask_bytes)).convert("L")
                 orig_img = Image.open(io_module.BytesIO(file_bytes)).convert("RGBA")
                 if user_mask.size != orig_img.size:
@@ -235,16 +238,32 @@ async def upload_and_process(
             orig_img = Image.open(io_module.BytesIO(file_bytes))
             img_w, img_h = orig_img.size
 
-            if mask is not None and mask.filename and mask.size and mask.size > 0:
-                # User-painted mask → BRIA Eraser (precise)
+            # Read and validate mask (user-painted or auto-detected)
+            mask_bytes = None
+            if mask is not None and mask.filename:
                 mask_bytes = await mask.read()
+                logger.info("Watermark removal: received mask file '%s' (%d bytes)",
+                    mask.filename, len(mask_bytes) if mask_bytes else 0)
+
+            if mask_bytes and len(mask_bytes) > 100:
+                # User-painted mask → Inpainting model (precise)
                 mask_img = Image.open(io_module.BytesIO(mask_bytes)).convert("L")
                 if mask_img.size != orig_img.size:
                     mask_img = mask_img.resize(orig_img.size, Image.LANCZOS)
-                logger.info("Watermark removal: user-painted mask, image %dx%d", img_w, img_h)
+                # Count white pixels for diagnostics
+                import numpy as np
+                white_px = int(np.array(mask_img).sum() // 255)
+                logger.info("Watermark removal: user-painted mask %s, white px=%d, image %dx%d",
+                    mask_img.size, white_px, img_w, img_h)
+                if white_px == 0:
+                    logger.warning("Watermark removal: mask is all black, falling back to auto-detect")
+                    mask_bytes = None
             else:
+                mask_bytes = None  # No valid mask provided
+
+            if mask_bytes is None:
                 # No user mask → auto-detect watermark with Florence-2
-                logger.info("Watermark removal: no user mask, auto-detecting with Florence-2")
+                logger.info("Watermark removal: no valid mask, auto-detecting with Florence-2")
                 auto_mask_bytes = await auto_detect_watermark(image_url)
                 if auto_mask_bytes is None:
                     raise HTTPException(
@@ -254,15 +273,22 @@ async def upload_and_process(
                 mask_img = Image.open(io_module.BytesIO(auto_mask_bytes)).convert("L")
                 if mask_img.size != orig_img.size:
                     mask_img = mask_img.resize(orig_img.size, Image.LANCZOS)
+                import numpy as np
+                white_px = int(np.array(mask_img).sum() // 255)
+                logger.info("Watermark removal: auto-detected mask, white px=%d", white_px)
 
-            # BRIA Eraser convention: white (255) = erase area, black (0) = keep
+            # Upload mask to S3
             mask_buf = io_module.BytesIO()
             mask_img.save(mask_buf, format="PNG")
             mask_key = f"masks/{user.id}/{uuid.uuid4().hex}.png"
             await upload_file(mask_buf.getvalue(), mask_key, "image/png")
             mask_url = generate_presigned_url(mask_key, expires_in=3600)
 
+            # Call inpainting model
+            logger.info("Watermark removal: calling model with image %dx%d and mask %s",
+                img_w, img_h, mask_img.size)
             result_url, replicate_id = await run_watermark_removal(image_url, mask_url)
+            logger.info("Watermark removal: model returned result_url=%s", result_url)
             task.output_file_url = result_url
             task.status = TaskStatus.COMPLETED
             task.completed_at = datetime.now(UTC)
