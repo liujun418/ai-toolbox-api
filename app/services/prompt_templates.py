@@ -55,6 +55,7 @@ TOOL_PROMPTS: dict[str, PromptTemplate] = {
         negative_prompt="",
         default_params={
             "mask_type": "manual",
+            "sync": True,
         },
     ),
 
