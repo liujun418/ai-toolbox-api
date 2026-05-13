@@ -32,7 +32,7 @@ from app.services.replicate_service import (
     run_style_transfer,
     run_text_polish,
     run_watermark_removal,
-    run_watermark_removal_auto,
+    auto_detect_watermark,
 )
 
 logger = logging.getLogger(__name__)
@@ -209,39 +209,40 @@ async def upload_and_process(
             task.completed_at = datetime.now(UTC)
 
         elif tool_type == "watermark-remover":
-            if mask is None or mask.filename is None or mask.size is None or mask.size == 0:
-                # Auto mode: BRIA Eraser with prompt-only (no mask)
-                logger.info("Watermark removal auto mode for task %s", task_id)
-                result_url, replicate_id = await run_watermark_removal_auto(image_url)
-                task.output_file_url = result_url
-                task.status = TaskStatus.COMPLETED
-                task.completed_at = datetime.now(UTC)
-            else:
+            orig_img = Image.open(io_module.BytesIO(file_bytes))
+            img_w, img_h = orig_img.size
+
+            if mask is not None and mask.filename and mask.size and mask.size > 0:
                 # User-painted mask → BRIA Eraser (precise)
                 mask_bytes = await mask.read()
                 mask_img = Image.open(io_module.BytesIO(mask_bytes)).convert("L")
-
-                # Resize mask to match preprocessed image dimensions
-                orig_img = Image.open(io_module.BytesIO(file_bytes))
+                if mask_img.size != orig_img.size:
+                    mask_img = mask_img.resize(orig_img.size, Image.LANCZOS)
+                logger.info("Watermark removal: user-painted mask, image %dx%d", img_w, img_h)
+            else:
+                # No user mask → auto-detect watermark with Florence-2
+                logger.info("Watermark removal: no user mask, auto-detecting with Florence-2")
+                auto_mask_bytes = await auto_detect_watermark(image_url)
+                if auto_mask_bytes is None:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Could not automatically detect watermark. Please paint over the watermark area and try again.",
+                    )
+                mask_img = Image.open(io_module.BytesIO(auto_mask_bytes)).convert("L")
                 if mask_img.size != orig_img.size:
                     mask_img = mask_img.resize(orig_img.size, Image.LANCZOS)
 
-                # BRIA Eraser convention: white (255) = erase area, black (0) = keep
-                mask_buf = io_module.BytesIO()
-                mask_img.save(mask_buf, format="PNG")
-                mask_key = f"masks/{user.id}/{uuid.uuid4().hex}.png"
-                await upload_file(mask_buf.getvalue(), mask_key, "image/png")
-                mask_url = generate_presigned_url(mask_key, expires_in=3600)
+            # BRIA Eraser convention: white (255) = erase area, black (0) = keep
+            mask_buf = io_module.BytesIO()
+            mask_img.save(mask_buf, format="PNG")
+            mask_key = f"masks/{user.id}/{uuid.uuid4().hex}.png"
+            await upload_file(mask_buf.getvalue(), mask_key, "image/png")
+            mask_url = generate_presigned_url(mask_key, expires_in=3600)
 
-                logger.info(
-                    "Watermark removal manual mode: image %dx%d, mask %dx%d",
-                    orig_img.size[0], orig_img.size[1],
-                    mask_img.size[0], mask_img.size[1],
-                )
-                result_url, replicate_id = await run_watermark_removal(image_url, mask_url)
-                task.output_file_url = result_url
-                task.status = TaskStatus.COMPLETED
-                task.completed_at = datetime.now(UTC)
+            result_url, replicate_id = await run_watermark_removal(image_url, mask_url)
+            task.output_file_url = result_url
+            task.status = TaskStatus.COMPLETED
+            task.completed_at = datetime.now(UTC)
 
         elif tool_type == "photo-restorer":
             output, replicate_id = await run_photo_restoration(image_url)

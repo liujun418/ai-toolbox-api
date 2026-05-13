@@ -1,7 +1,10 @@
 """Replicate API service — async-wrapped, prompt-templated, retry-enabled."""
 
 import asyncio
+import io as io_module
 import logging
+
+from PIL import Image, ImageDraw
 
 import replicate
 
@@ -60,23 +63,96 @@ async def run_watermark_removal(image_url: str, mask_url: str) -> tuple[str, str
     return str(output), None
 
 
-async def run_watermark_removal_auto(image_url: str) -> tuple[str, str | None]:
-    """Auto-detect and remove watermarks using BRIA Eraser (prompt-only, no mask).
-    Returns (output_url, replicate_id). Raises if output is empty."""
-    async def _call():
+# ── Watermark Auto-Detect (Florence-2) ─────────────────────────────
+
+FLORENCE2_MODEL = "lucataco/florence-2-large:da53547e17d45b9cfb48174b2f18af8b83ca020fa76db62136bf9c6616762595"
+
+# Labels that likely indicate watermark/overlay regions
+_WATERMARK_KEYWORDS = {
+    "text", "watermark", "logo", "stamp", "signature", "label", "caption",
+    "overlay", "brand", "copyright", "mark", "icon", "badge", "tag",
+}
+
+# Short labels (1-4 chars) at edges/corners are often watermarks
+_SHORT_LABEL_KEYWORDS = {
+    "www", "http", ".com", ".net", ".org", "©", "®", "tm",
+}
+
+
+async def auto_detect_watermark(image_url: str) -> bytes | None:
+    """Use Florence-2 to detect watermark regions and generate a mask.
+    Returns mask PNG bytes (white = watermark area) or None if no watermark found."""
+
+    async def _detect():
         return await _run_model(
-            TOOL_PROMPTS["watermark-remover"].model,
-            input={
-                "image": image_url,
-                "prompt": "watermark, text overlay, logo, signature",
-            },
+            FLORENCE2_MODEL,
+            input={"image": image_url, "task": "dense region caption"},
         )
-    output = await retry_with_backoff(_call)
-    if isinstance(output, list):
-        if not output:
-            raise ValueError("BRIA Eraser returned empty output — no watermarks detected")
-        return str(output[0]), None
-    return str(output), None
+
+    try:
+        result = await retry_with_backoff(_detect, max_retries=1, base_delay=2)
+    except Exception as e:
+        logger.warning("Florence-2 detection failed: %s", str(e))
+        return None
+
+    # Parse Florence-2 output: {"<DENSE_REGION_CAPTION>": {"bboxes": [...], "labels": [...]}}
+    if isinstance(result, dict):
+        caption_data = result.get("<DENSE_REGION_CAPTION>", {})
+    elif isinstance(result, str):
+        # Some Replicate wrappers return JSON string
+        import json
+        try:
+            parsed = json.loads(result)
+            caption_data = parsed.get("<DENSE_REGION_CAPTION>", {})
+        except (json.JSONDecodeError, AttributeError):
+            return None
+    else:
+        return None
+
+    bboxes = caption_data.get("bboxes", [])
+    labels = caption_data.get("labels", [])
+
+    if not bboxes or not labels:
+        return None
+
+    # Filter: only keep regions that look like watermark/text overlays
+    selected = []
+    for bbox, label in zip(bboxes, labels):
+        label_lower = label.lower().strip()
+        if any(kw in label_lower for kw in _WATERMARK_KEYWORDS):
+            selected.append(bbox)
+        elif len(label) <= 4 and any(kw in label_lower for kw in _SHORT_LABEL_KEYWORDS):
+            selected.append(bbox)
+
+    if not selected:
+        # No obvious watermark detected — return None
+        return None
+
+    # Build mask from selected bounding boxes
+    # We need image dimensions — fetch the image to get size
+    try:
+        import httpx
+        resp = httpx.get(image_url, follow_redirects=True, timeout=15)
+        img = Image.open(io_module.BytesIO(resp.content))
+        w, h = img.size
+    except Exception:
+        return None
+
+    mask = Image.new("L", (w, h), 0)
+    draw = ImageDraw.Draw(mask)
+    for bbox in selected:
+        # Florence-2 bbox format: [x1, y1, x2, y2] — relative coordinates (0-1000)
+        x1 = int(bbox[0] / 1000 * w)
+        y1 = int(bbox[1] / 1000 * h)
+        x2 = int(bbox[2] / 1000 * w)
+        y2 = int(bbox[3] / 1000 * h)
+        # Add padding around the detected region
+        pad = max(5, min(w, h) // 50)
+        draw.rectangle([x1 - pad, y1 - pad, x2 + pad, y2 + pad], fill=255)
+
+    buf = io_module.BytesIO()
+    mask.save(buf, format="PNG")
+    return buf.getvalue()
 
 
 # ── Photo Restorer ────────────────────────────────────────────────
