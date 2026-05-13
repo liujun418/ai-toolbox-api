@@ -316,7 +316,7 @@ def list_tasks(
     return AdminTaskListResponse(
         tasks=[
             AdminTaskItem(
-                id=t.id, user_id=t.user_id, user_email=t.User.email if hasattr(t, "User") else "",
+                id=t.id, user_id=t.user_id, user_email=t.user.email if hasattr(t, "user") else "",
                 tool_type=t.tool_type,
                 status=t.status.value if isinstance(t.status, TaskStatus) else t.status,
                 credits_cost=t.credits_cost, error_message=t.error_message,
@@ -352,7 +352,7 @@ def list_transactions(
     return AdminTransactionListResponse(
         transactions=[
             AdminTransactionItem(
-                id=t.id, user_id=t.user_id, user_email=t.User.email if hasattr(t, "User") else "",
+                id=t.id, user_id=t.user_id, user_email=t.user.email if hasattr(t, "user") else "",
                 type=t.type, amount=t.amount, description=t.description,
                 created_at=t.created_at,
             )
