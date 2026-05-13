@@ -45,34 +45,41 @@ async def run_background_remover(image_url: str) -> tuple[str, str | None]:
 
 async def run_watermark_removal(image_url: str, mask_url: str) -> tuple[str, str | None]:
     """Remove watermarks using BRIA Eraser. Requires user-provided mask.
-    Returns (output_url, replicate_id)."""
+    Returns (output_url, replicate_id). Raises if output is empty."""
     async def _call():
         return await _run_model(
             TOOL_PROMPTS["watermark-remover"].model,
             input={"image": image_url, "mask": mask_url},
         )
     output = await retry_with_backoff(_call)
+    # BRIA Eraser returns a list of URLs
+    if isinstance(output, list):
+        if not output:
+            raise ValueError("BRIA Eraser returned empty output")
+        return str(output[0]), None
     return str(output), None
 
 
 async def run_watermark_removal_auto(image_url: str) -> tuple[str, str | None]:
-    """Auto-detect and remove watermarks using SDXL img2img.
-    No mask needed — AI decides what to remove.
-    Returns (output_url, replicate_id)."""
+    """Auto-detect and remove watermarks using a different model (no mask needed).
+    Returns (output_url, replicate_id). Raises if output is empty."""
     async def _call():
         return await _run_model(
-            TOOL_PROMPTS["style-transfer"].model,
+            "stability-ai/sdxl:7762fd07cf82c948538e41f63f77d685e02b063e37e496e96eefd46c929f9bdc",
             input={
-                "prompt": "clean image, no watermarks, no text, no logos, natural background, high quality",
+                "prompt": "professional clean image, no watermarks, no text overlays, no logos, natural scene, high quality photography",
                 "image": image_url,
-                "strength": 0.35,
+                "prompt_strength": 0.35,
+                "num_outputs": 1,
                 "num_inference_steps": 30,
                 "guidance_scale": 7.5,
-                "scheduler": "K_EULER",
-                "num_outputs": 1,
             },
         )
     output = await retry_with_backoff(_call)
+    if isinstance(output, list):
+        if not output:
+            raise ValueError("SDXL returned empty output")
+        return str(output[0]), None
     return str(output), None
 
 
