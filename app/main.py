@@ -33,9 +33,14 @@ def _ensure_db_columns():
         for col_name, col_type in needed.items():
             if col_name not in existing:
                 conn.execute(text(f"ALTER TABLE users ADD COLUMN {col_name} {col_type}"))
-        # Normalize role values: SAEnum stored uppercase names ("USER"/"ADMIN"),
-        # but the model now expects lowercase values ("user"/"admin").
-        # Must cast to text first because LOWER() doesn't work on ENUM types.
+        # Normalize role column: SAEnum created a PostgreSQL ENUM type storing
+        # uppercase member names (USER/ADMIN). The model now uses plain string.
+        # First convert the column type, then normalize values to lowercase.
+        col_type = conn.execute(text(
+            "SELECT data_type FROM information_schema.columns WHERE table_name='users' AND column_name='role'"
+        )).scalar()
+        if col_type == "USER-DEFINED":
+            conn.execute(text("ALTER TABLE users ALTER COLUMN role TYPE VARCHAR(20) USING role::text"))
         conn.execute(text("UPDATE users SET role = 'admin' WHERE role = 'ADMIN'"))
         conn.execute(text("UPDATE users SET role = 'user' WHERE role = 'USER'"))
 
