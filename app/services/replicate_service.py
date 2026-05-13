@@ -88,59 +88,62 @@ _SHORT_LABEL_KEYWORDS = {
 
 
 async def auto_detect_watermark(image_url: str) -> bytes | None:
-    """Use Florence-2 to detect watermark regions and generate a mask.
-    Tries dense region caption first, falls back to OCR for text watermarks.
-    Returns mask PNG bytes (white = watermark area) or None if no watermark found."""
+    """Detect watermark regions using Florence-2 OD (open-vocabulary object detection).
+    Falls back to OCR. Returns mask PNG bytes (white = watermark area) or None."""
 
     bboxes = []
     labels = []
 
-    # Strategy 1: dense region caption
+    # Strategy 1: Object detection targeting watermarks/logos/text
     try:
-        async def _detect_dense():
+        async def _detect_od():
             return await _run_model(
                 FLORENCE2_MODEL,
-                input={"image": image_url, "task": "dense region caption"},
+                input={
+                    "image": image_url,
+                    "task": "<OD>",
+                    "prompt": "watermark, logo, text, signature, stamp",
+                },
             )
-        result = await retry_with_backoff(_detect_dense, max_retries=1, base_delay=2)
-        logger.info("Florence-2 dense caption result type: %s", type(result).__name__)
+        result = await retry_with_backoff(_detect_od, max_retries=1, base_delay=2)
+        logger.info("Florence-2 OD result type: %s", type(result).__name__)
 
         if isinstance(result, dict):
-            caption_data = result.get("<DENSE_REGION_CAPTION>", {})
+            od_data = result.get("<OD>", {})
         elif isinstance(result, str):
             import json
             try:
                 parsed = json.loads(result)
-                caption_data = parsed.get("<DENSE_REGION_CAPTION>", {})
+                od_data = parsed.get("<OD>", {})
             except (json.JSONDecodeError, AttributeError):
-                caption_data = {}
+                od_data = {}
         else:
-            caption_data = {}
+            od_data = {}
 
-        bboxes = caption_data.get("bboxes", [])
-        labels = caption_data.get("labels", [])
-        logger.info("Florence-2 dense: %d regions, labels=%s",
-            len(labels), labels[:5] if labels else "none")
+        bboxes = od_data.get("bboxes", [])
+        labels = od_data.get("labels", [])
+        logger.info("Florence-2 OD: %d detections, labels=%s",
+            len(labels), labels[:10] if labels else "none")
     except Exception as e:
-        logger.warning("Florence-2 dense caption failed: %s", str(e))
+        logger.warning("Florence-2 OD failed: %s", str(e))
 
-    # Strategy 2: OCR fallback for text-based watermarks
+    # Strategy 2: OCR for text watermarks
     if not bboxes:
         try:
             async def _detect_ocr():
                 return await _run_model(
                     FLORENCE2_MODEL,
-                    input={"image": image_url, "task": "ocr"},
+                    input={"image": image_url, "task": "<OCR_WITH_REGION>"},
                 )
             result = await retry_with_backoff(_detect_ocr, max_retries=1, base_delay=2)
 
             if isinstance(result, dict):
-                ocr_data = result.get("<OCR>", {})
+                ocr_data = result.get("<OCR_WITH_REGION>", {})
             elif isinstance(result, str):
                 import json
                 try:
                     parsed = json.loads(result)
-                    ocr_data = parsed.get("<OCR>", {})
+                    ocr_data = parsed.get("<OCR_WITH_REGION>", {})
                 except (json.JSONDecodeError, AttributeError):
                     ocr_data = {}
             else:
@@ -153,36 +156,18 @@ async def auto_detect_watermark(image_url: str) -> bytes | None:
 
             if ocr_bboxes:
                 bboxes = ocr_bboxes
-                labels = ["text"] * len(ocr_bboxes)  # All OCR results are text
+                labels = ocr_labels
         except Exception as e:
             logger.warning("Florence-2 OCR failed: %s", str(e))
 
-    if not bboxes:
-        logger.info("Florence-2: no regions found from either detection method")
-        return None
-
-    # Filter: prefer text/watermark-like regions, but use all if few regions
-    selected = []
-    for bbox, label in zip(bboxes, labels):
-        label_lower = str(label).lower().strip()
-        if any(kw in label_lower for kw in _WATERMARK_KEYWORDS):
-            selected.append(bbox)
-        elif len(label_lower) <= 4 and any(kw in label_lower for kw in _SHORT_LABEL_KEYWORDS):
-            selected.append(bbox)
-        elif label_lower == "text":
-            selected.append(bbox)  # OCR text is always a candidate
-
-    if not selected and len(bboxes) <= 20:
-        selected = bboxes  # Fallback to all regions if not too many
-        logger.info("Auto-detect: using all %d regions as fallback", len(bboxes))
-    elif not selected:
-        logger.info("Auto-detect: too many regions (%d), no clear watermark found", len(bboxes))
-        return None
+    if bboxes:
+        selected = bboxes  # Use all OD/OCR detections directly
+        logger.info("Auto-detect: using %d detected regions for mask", len(selected))
     else:
-        logger.info("Auto-detect: selected %d/%d regions as watermark candidates",
-            len(selected), len(bboxes))
+        logger.info("Auto-detect: no watermarks detected by any method")
+        return None
 
-    # Build mask from selected bounding boxes
+    # Fetch image to get dimensions
     try:
         import httpx
         resp = httpx.get(image_url, follow_redirects=True, timeout=15)
@@ -192,6 +177,7 @@ async def auto_detect_watermark(image_url: str) -> bytes | None:
         logger.warning("Auto-detect: failed to fetch image for dimensions: %s", str(e))
         return None
 
+    # Build mask
     mask = Image.new("L", (w, h), 0)
     draw = ImageDraw.Draw(mask)
     for bbox in selected:
@@ -199,7 +185,7 @@ async def auto_detect_watermark(image_url: str) -> bytes | None:
         y1 = max(0, int(bbox[1] / 1000 * h))
         x2 = min(w, int(bbox[2] / 1000 * w))
         y2 = min(h, int(bbox[3] / 1000 * h))
-        pad = max(10, min(w, h) // 30)
+        pad = max(12, min(w, h) // 25)
         draw.rectangle([
             max(0, x1 - pad), max(0, y1 - pad),
             min(w, x2 + pad), min(h, y2 + pad)
