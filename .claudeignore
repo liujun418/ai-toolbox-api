@@ -1,0 +1,54 @@
+# 版本控制
+.git/
+.gitignore
+
+# 依赖包
+node_modules/
+pnpm-lock.yaml
+package-lock.yaml
+yarn.lock
+
+# 构建输出
+dist/
+build/
+out/
+.next/
+nuxt/dist/
+vitepress/dist/
+
+# 环境配置
+.env
+.env.local
+.env.development
+.env.production
+
+# 日志&缓存
+*.log
+.npm/
+.pnpm/
+cache/
+
+# 资源大文件
+assets/
+images/
+imgs/
+video/
+audio/
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.svg
+*.webp
+
+# 文档&压缩包
+*.pdf
+*.zip
+*.rar
+*.7z
+doc/
+docs/
+
+# IDE 配置
+.vscode/
+.idea/

@@ -208,20 +208,18 @@ async def upload_and_process(
             task.completed_at = datetime.now(UTC)
 
         elif tool_type == "watermark-remover":
+            mask_url_for_ai: str | None = None
             if mask is not None and mask.filename and mask.size and mask.size > 0:
                 mask_bytes = await mask.read()
                 mask_img = Image.open(io_module.BytesIO(mask_bytes)).convert("L")
-            else:
-                orig_img = Image.open(io_module.BytesIO(file_bytes))
-                mask_img = Image.new("L", orig_img.size, 255)
+                mask_buf = io_module.BytesIO()
+                mask_img.save(mask_buf, format="PNG")
+                mask_key = f"masks/{user.id}/{uuid.uuid4().hex}.png"
+                await upload_file(mask_buf.getvalue(), mask_key, "image/png")
+                mask_url_for_ai = generate_presigned_url(mask_key, expires_in=3600)
+            # No mask: AI auto-detects watermark area (mask_url_for_ai stays None)
 
-            mask_buf = io_module.BytesIO()
-            mask_img.save(mask_buf, format="PNG")
-            mask_key = f"masks/{user.id}/{uuid.uuid4().hex}.png"
-            await upload_file(mask_buf.getvalue(), mask_key, "image/png")
-            mask_url = generate_presigned_url(mask_key, expires_in=3600)
-
-            result_url, replicate_id = await run_watermark_removal(image_url, mask_url)
+            result_url, replicate_id = await run_watermark_removal(image_url, mask_url_for_ai)
             task.output_file_url = result_url
             task.status = TaskStatus.COMPLETED
             task.completed_at = datetime.now(UTC)
