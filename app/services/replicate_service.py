@@ -43,15 +43,35 @@ async def run_background_remover(image_url: str) -> tuple[str, str | None]:
 
 # ── Watermark Remover ─────────────────────────────────────────────
 
-async def run_watermark_removal(image_url: str, mask_url: str | None = None) -> tuple[str, str | None]:
-    """Remove watermarks using BRIA Eraser. Returns (output_url, replicate_id).
-    If mask_url is provided, only the masked area is erased.
-    If mask_url is None, AI auto-detects the watermark area."""
-    inp: dict = {"image": image_url}
-    if mask_url:
-        inp["mask"] = mask_url
+async def run_watermark_removal(image_url: str, mask_url: str) -> tuple[str, str | None]:
+    """Remove watermarks using BRIA Eraser. Requires user-provided mask.
+    Returns (output_url, replicate_id)."""
     async def _call():
-        return await _run_model(TOOL_PROMPTS["watermark-remover"].model, input=inp)
+        return await _run_model(
+            TOOL_PROMPTS["watermark-remover"].model,
+            input={"image": image_url, "mask": mask_url},
+        )
+    output = await retry_with_backoff(_call)
+    return str(output), None
+
+
+async def run_watermark_removal_auto(image_url: str) -> tuple[str, str | None]:
+    """Auto-detect and remove watermarks using SDXL img2img.
+    No mask needed — AI decides what to remove.
+    Returns (output_url, replicate_id)."""
+    async def _call():
+        return await _run_model(
+            TOOL_PROMPTS["style-transfer"].model,
+            input={
+                "prompt": "clean image, no watermarks, no text, no logos, natural background, high quality",
+                "image": image_url,
+                "strength": 0.35,
+                "num_inference_steps": 30,
+                "guidance_scale": 7.5,
+                "scheduler": "K_EULER",
+                "num_outputs": 1,
+            },
+        )
     output = await retry_with_backoff(_call)
     return str(output), None
 
