@@ -35,7 +35,9 @@ def _ensure_db_columns():
                 conn.execute(text(f"ALTER TABLE users ADD COLUMN {col_name} {col_type}"))
         # Normalize role values: SAEnum stored uppercase names ("USER"/"ADMIN"),
         # but the model now expects lowercase values ("user"/"admin").
-        conn.execute(text("UPDATE users SET role = LOWER(role) WHERE role IN ('USER', 'ADMIN')"))
+        # Must cast to text first because LOWER() doesn't work on ENUM types.
+        conn.execute(text("UPDATE users SET role = 'admin' WHERE role = 'ADMIN'"))
+        conn.execute(text("UPDATE users SET role = 'user' WHERE role = 'USER'"))
 
 
 @asynccontextmanager
