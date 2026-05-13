@@ -32,7 +32,12 @@ NEGATIVE_REMBG = (
     "incomplete removal, semi-transparent residue, background bleeding, "
     "clipped details, over-smooth, over-erased, broken edges, noise"
 )
-NEGATIVE_ERASER = "blurry, smudged, unnatural, low quality artifacts"
+NEGATIVE_INPAINTING = (
+    "blurry, smudged, deformed textures, inconsistent lighting, "
+    "visible seam, obvious edit marks, ghost artifacts, residual text, "
+    "low quality, watermark remnants, logo remnants, unnatural patterns, "
+    "JPEG artifacts, noise, oversharpened"
+)
 
 # ── Tool templates ────────────────────────────────────────────────
 
@@ -45,10 +50,20 @@ TOOL_PROMPTS: dict[str, PromptTemplate] = {
     ),
 
     "watermark-remover": PromptTemplate(
-        model="bria/eraser:893e924eecc119a0c5fbfa5d98401118dcbf0662574eb8d2c01be5749756cbd4",
-        positive_prompt="",
-        negative_prompt=NEGATIVE_ERASER,
-        default_params={},
+        model="black-forest-labs/flux-fill-dev",
+        positive_prompt=(
+            "clean seamless natural background texture matching the surrounding area, "
+            "no watermark, no logo, no text, no signature, smooth blending, "
+            "consistent lighting and color, photorealistic details, "
+            "undetectable repair, professional restoration"
+        ),
+        negative_prompt=NEGATIVE_INPAINTING,
+        default_params={
+            "guidance": 30,
+            "num_inference_steps": 50,
+            "num_outputs": 1,
+            "output_format": "png",
+        },
     ),
 
     "photo-restorer": PromptTemplate(

@@ -49,18 +49,26 @@ async def run_background_remover(image_url: str) -> tuple[str, str | None]:
 # ── Watermark Remover ─────────────────────────────────────────────
 
 async def run_watermark_removal(image_url: str, mask_url: str) -> tuple[str, str | None]:
-    """Remove watermarks using BRIA Eraser. Requires user-provided mask.
-    Returns (output_url, replicate_id). Raises if output is empty."""
+    """Remove watermarks using FLUX Fill Inpainting. Requires mask.
+    Returns (output_url, replicate_id)."""
+    tpl = TOOL_PROMPTS["watermark-remover"]
+    inp = {
+        "image": image_url,
+        "mask": mask_url,
+        "prompt": tpl.positive_prompt,
+        **tpl.default_params,
+    }
+    if tpl.negative_prompt:
+        inp["negative_prompt"] = tpl.negative_prompt
+
     async def _call():
-        return await _run_model(
-            TOOL_PROMPTS["watermark-remover"].model,
-            input={"image": image_url, "mask": mask_url},
-        )
+        return await _run_model(tpl.model, input=inp)
+
     output = await retry_with_backoff(_call)
-    # BRIA Eraser returns a list of URLs
+    # FLUX Fill returns a list of URLs
     if isinstance(output, list):
         if not output:
-            raise ValueError("BRIA Eraser returned empty output")
+            raise ValueError("Inpainting model returned empty output")
         return str(output[0]), None
     return str(output), None
 
