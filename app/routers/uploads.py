@@ -32,7 +32,6 @@ from app.services.replicate_service import (
     run_style_transfer,
     run_text_polish,
     run_watermark_removal,
-    run_watermark_removal_auto,
 )
 
 logger = logging.getLogger(__name__)
@@ -209,38 +208,36 @@ async def upload_and_process(
             task.completed_at = datetime.now(UTC)
 
         elif tool_type == "watermark-remover":
-            if mask is not None and mask.filename and mask.size and mask.size > 0:
-                # Manual mode: user-painted mask → BRIA Eraser (precise)
-                mask_bytes = await mask.read()
-                mask_img = Image.open(io_module.BytesIO(mask_bytes)).convert("L")
-
-                # Resize mask to match preprocessed image dimensions
-                orig_img = Image.open(io_module.BytesIO(file_bytes))
-                if mask_img.size != orig_img.size:
-                    mask_img = mask_img.resize(orig_img.size, Image.LANCZOS)
-
-                # Invert mask: frontend paints yellow on canvas (alpha > 0 = erase area)
-                # BRIA Eraser expects: white = keep, black = erase
-                # Frontend mask has white (255) where painted, so we invert
-                mask_img = Image.eval(mask_img, lambda p: 255 - p)
-
-                mask_buf = io_module.BytesIO()
-                mask_img.save(mask_buf, format="PNG")
-                mask_key = f"masks/{user.id}/{uuid.uuid4().hex}.png"
-                await upload_file(mask_buf.getvalue(), mask_key, "image/png")
-                mask_url = generate_presigned_url(mask_key, expires_in=3600)
-
-                logger.info(
-                    "Watermark removal manual mode: image %dx%d, mask %dx%d",
-                    orig_img.size[0], orig_img.size[1],
-                    orig_img.size[0], orig_img.size[1],
+            if mask is None or mask.filename is None or mask.size is None or mask.size == 0:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Please paint over the watermark area first so the AI knows what to remove.",
                 )
-                result_url, replicate_id = await run_watermark_removal(image_url, mask_url)
-            else:
-                # Auto-detect mode: SDXL img2img with low strength
-                logger.info("Watermark removal auto mode: using SDXL img2img")
-                result_url, replicate_id = await run_watermark_removal_auto(image_url)
 
+            # User-painted mask → BRIA Eraser (precise)
+            mask_bytes = await mask.read()
+            mask_img = Image.open(io_module.BytesIO(mask_bytes)).convert("L")
+
+            # Resize mask to match preprocessed image dimensions
+            orig_img = Image.open(io_module.BytesIO(file_bytes))
+            if mask_img.size != orig_img.size:
+                mask_img = mask_img.resize(orig_img.size, Image.LANCZOS)
+
+            # BRIA Eraser convention: white (255) = erase area, black (0) = keep
+            # Frontend paints yellow on canvas → mask has white (255) where painted
+            # This matches BRIA's expectation directly — no inversion needed
+            mask_buf = io_module.BytesIO()
+            mask_img.save(mask_buf, format="PNG")
+            mask_key = f"masks/{user.id}/{uuid.uuid4().hex}.png"
+            await upload_file(mask_buf.getvalue(), mask_key, "image/png")
+            mask_url = generate_presigned_url(mask_key, expires_in=3600)
+
+            logger.info(
+                "Watermark removal: image %dx%d, mask resized to %dx%d",
+                orig_img.size[0], orig_img.size[1],
+                orig_img.size[0], orig_img.size[1],
+            )
+            result_url, replicate_id = await run_watermark_removal(image_url, mask_url)
             task.output_file_url = result_url
             task.status = TaskStatus.COMPLETED
             task.completed_at = datetime.now(UTC)
