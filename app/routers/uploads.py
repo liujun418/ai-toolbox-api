@@ -81,6 +81,7 @@ async def upload_and_process(
     file: UploadFile = File(...),
     prompt: str | None = Form(default=None),
     style: str | None = Form(default=None),
+    bg_color: str | None = Form(default=None),
     mask: UploadFile | None = File(default=None),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -185,13 +186,29 @@ async def upload_and_process(
         replicate_id = None
 
         if tool_type == "background-remover":
+            # Parse background color
+            bg_tuple: tuple[int, int, int] | None = None
+            if bg_color and bg_color != "transparent":
+                if bg_color == "white":
+                    bg_tuple = (255, 255, 255)
+                elif bg_color == "black":
+                    bg_tuple = (0, 0, 0)
+                elif bg_color.startswith("#") and len(bg_color) == 7:
+                    try:
+                        r = int(bg_color[1:3], 16)
+                        g = int(bg_color[3:5], 16)
+                        b = int(bg_color[5:7], 16)
+                        bg_tuple = (r, g, b)
+                    except ValueError:
+                        pass
+
             if mask is not None and mask.filename and mask.size and mask.size > 0:
+                # Manual keep mode: user-painted mask
                 mask_bytes = await mask.read()
                 user_mask = Image.open(io_module.BytesIO(mask_bytes)).convert("L")
                 orig_img = Image.open(io_module.BytesIO(file_bytes)).convert("RGBA")
                 if user_mask.size != orig_img.size:
                     user_mask = user_mask.resize(orig_img.size, Image.LANCZOS)
-                # Use NumPy-style masking for speed
                 import numpy as np
                 img_arr = np.array(orig_img)
                 mask_arr = np.array(user_mask)
@@ -207,8 +224,10 @@ async def upload_and_process(
                 result_url, replicate_id = await run_background_remover(masked_url)
                 task.output_file_url = result_url
             else:
+                # Auto mode: one-click background removal
                 result_url, replicate_id = await run_background_remover(image_url)
                 task.output_file_url = result_url
+
             task.status = TaskStatus.COMPLETED
             task.completed_at = datetime.now(UTC)
 
@@ -347,7 +366,15 @@ async def upload_and_process(
                 import httpx
                 resp = httpx.get(task.output_file_url, follow_redirects=True, timeout=30)
                 if resp.status_code == 200:
-                    processed_bytes = postprocess_image(resp.content)
+                    # Background remover: feather edges + optional background fill
+                    if tool_type == "background-remover":
+                        processed_bytes = postprocess_image(
+                            resp.content,
+                            feather_radius=1.5,
+                            bg_color=bg_tuple,
+                        )
+                    else:
+                        processed_bytes = postprocess_image(resp.content)
                     ext = "png" if task.output_file_url.lower().endswith(".png") else "webp"
                     output_key = f"output/{user.id}/{task_id}.{ext}"
                     ct = "image/png" if ext == "png" else "image/webp"

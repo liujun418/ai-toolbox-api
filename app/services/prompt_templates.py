@@ -27,7 +27,11 @@ NEGATIVE_SDXL = (
     "duplicate, cropped, worst quality"
 )
 NEGATIVE_GFPGAN = "blurry, noisy, artifacted, oversharpened, oversaturated"
-NEGATIVE_REMBG = "low quality, blurry, artifacts, jagged edges"
+NEGATIVE_REMBG = (
+    "low quality, blurry, artifacts, jagged edges, halos, white edges, "
+    "incomplete removal, semi-transparent residue, background bleeding, "
+    "clipped details, over-smooth, over-erased, broken edges, noise"
+)
 NEGATIVE_ERASER = "blurry, smudged, unnatural, low quality artifacts"
 
 # ── Tool templates ────────────────────────────────────────────────

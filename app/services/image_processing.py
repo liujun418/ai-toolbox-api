@@ -131,29 +131,95 @@ def preprocess_avatar(image_bytes: bytes) -> tuple[bytes, dict]:
     return result, metadata
 
 
-def postprocess_image(image_bytes: bytes) -> bytes:
+def feather_alpha(image_bytes: bytes, radius: float = 1.5) -> bytes:
+    """Smooth the alpha channel to eliminate hard edges and halos.
+
+    Separates the alpha channel, applies Gaussian blur to create smooth
+    edge transitions, then recombines with the original RGB data.
+
+    Returns feather-edged RGBA PNG bytes.
+    """
+    img = Image.open(io.BytesIO(image_bytes))
+    if img.mode != "RGBA":
+        img = img.convert("RGBA")
+
+    r, g, b, a = img.split()
+    # Gaussian blur on alpha channel for smooth edge transition
+    a = a.filter(ImageFilter.GaussianBlur(radius=radius))
+    img = Image.merge("RGBA", (r, g, b, a))
+
+    buf = io.BytesIO()
+    img.save(buf, format="PNG", optimize=True)
+    buf.seek(0)
+    return buf.read()
+
+
+def composite_on_background(
+    image_bytes: bytes,
+    color: tuple[int, int, int] = (255, 255, 255),
+) -> bytes:
+    """Composite an RGBA image onto a solid color background.
+
+    Returns RGB PNG bytes (alpha channel flattened into solid color).
+    """
+    img = Image.open(io.BytesIO(image_bytes))
+    if img.mode != "RGBA":
+        img = img.convert("RGBA")
+
+    r, g, b, a = img.split()
+    background = Image.new("RGB", img.size, color)
+    background.paste(img, mask=a)
+
+    buf = io.BytesIO()
+    background.save(buf, format="PNG", optimize=True)
+    buf.seek(0)
+    return buf.read()
+
+
+def postprocess_image(
+    image_bytes: bytes,
+    feather_radius: float = 0,
+    bg_color: tuple[int, int, int] | None = None,
+) -> bytes:
     """Post-process AI output for consistent quality and format.
 
-    - Applies mild unsharp mask sharpening
-    - Converts to WebP for uniform output
+    - feather_radius > 0: applies Gaussian blur to alpha channel for smooth edges
+    - bg_color: composites result onto solid color background (None = keep transparent)
+    - Non-RGBA images: sharpening, contrast, saturation, WebP output
     """
     try:
         img = Image.open(io.BytesIO(image_bytes))
 
-        # Convert to RGB if needed (handles RGBA output from some models)
+        # RGBA path: feather alpha, optionally fill background, output PNG
         if img.mode == "RGBA":
-            # Keep alpha: save as PNG for RGBA results
+            if feather_radius > 0:
+                r, g, b, a = img.split()
+                a = a.filter(ImageFilter.GaussianBlur(radius=feather_radius))
+                img = Image.merge("RGBA", (r, g, b, a))
+
+            if bg_color is not None:
+                r, g, b, a = img.split()
+                background = Image.new("RGB", img.size, bg_color)
+                background.paste(img, mask=a)
+                img = background
+                # Apply sharpening to composite result
+                img = img.filter(ImageFilter.UnsharpMask(radius=1.5, percent=180, threshold=3))
+                enhancer = ImageEnhance.Contrast(img)
+                img = enhancer.enhance(1.04)
+
             buf = io.BytesIO()
             img.save(buf, format="PNG", optimize=True)
             buf.seek(0)
             return buf.read()
-        elif img.mode != "RGB":
+
+        # Non-RGBA image (e.g., RGB from upscaler)
+        if img.mode != "RGB":
             img = img.convert("RGB")
 
-        # Sharpening (enhanced for crisp output)
+        # Sharpening
         img = img.filter(ImageFilter.UnsharpMask(radius=1.5, percent=180, threshold=3))
 
-        # Contrast boost for vibrancy
+        # Contrast boost
         enhancer = ImageEnhance.Contrast(img)
         img = enhancer.enhance(1.06)
 
@@ -161,11 +227,10 @@ def postprocess_image(image_bytes: bytes) -> bytes:
         sat_enhancer = ImageEnhance.Color(img)
         img = sat_enhancer.enhance(1.03)
 
-        # Output as WebP (quality 90 for crisp detail)
+        # Output as WebP
         buf = io.BytesIO()
         img.save(buf, format="WEBP", quality=90, optimize=True)
         buf.seek(0)
         return buf.read()
     except Exception:
-        # If postprocessing fails, return original bytes — don't break the pipeline
         return image_bytes
