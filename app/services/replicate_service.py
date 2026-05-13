@@ -49,23 +49,17 @@ async def run_background_remover(image_url: str) -> tuple[str, str | None]:
 # ── Watermark Remover ─────────────────────────────────────────────
 
 async def run_watermark_removal(image_url: str, mask_url: str) -> tuple[str, str | None]:
-    """Remove watermarks using LaMa Inpainting (context-aware fill).
-    Returns (output_url, replicate_id)."""
-    tpl = TOOL_PROMPTS["watermark-remover"]
-    inp = {
-        "image": image_url,
-        "mask": mask_url,
-        **tpl.default_params,
-    }
-
+    """Remove watermarks using BRIA Eraser (professional inpainting).
+    Returns (output_url, replicate_id). Raises if output is empty."""
     async def _call():
-        return await _run_model(tpl.model, input=inp)
-
+        return await _run_model(
+            TOOL_PROMPTS["watermark-remover"].model,
+            input={"image": image_url, "mask": mask_url},
+        )
     output = await retry_with_backoff(_call)
-    # LaMa returns a single URL or list
     if isinstance(output, list):
         if not output:
-            raise ValueError("Inpainting model returned empty output")
+            raise ValueError("BRIA Eraser returned empty output")
         return str(output[0]), None
     return str(output), None
 

@@ -50,12 +50,10 @@ TOOL_PROMPTS: dict[str, PromptTemplate] = {
     ),
 
     "watermark-remover": PromptTemplate(
-        model="dpakkk/image-object-removal:40e67426e1bf78199d78b36580389fbbdcb4c9cdc2bc2b489e99d713f167b3c5",
-        positive_prompt="",    # LaMa is mask-only, no prompt needed
-        negative_prompt="",    # LaMa doesn't support negative prompts
-        default_params={
-            "hd_strategy_resize_limit": 1200,
-        },
+        model="bria/eraser:893e924eecc119a0c5fbfa5d98401118dcbf0662574eb8d2c01be5749756cbd4",
+        positive_prompt="",
+        negative_prompt="blurry, smudged, unnatural, low quality artifacts, jagged edges",
+        default_params={},
     ),
 
     "photo-restorer": PromptTemplate(
