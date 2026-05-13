@@ -4,7 +4,8 @@ import asyncio
 import io as io_module
 import logging
 
-from PIL import Image, ImageDraw
+import numpy as np
+from PIL import Image, ImageDraw, ImageFilter
 
 import replicate
 
@@ -68,134 +69,93 @@ async def run_watermark_removal(image_url: str, mask_url: str) -> tuple[str, str
     return str(output), None
 
 
-# ── Watermark Auto-Detect (Florence-2) ─────────────────────────────
-
-FLORENCE2_MODEL = "lucataco/florence-2-large:da53547e17d45b9cfb48174b2f18af8b83ca020fa76db62136bf9c6616762595"
-
-# Labels that likely indicate watermark/overlay regions
-_WATERMARK_KEYWORDS = {
-    "text", "watermark", "logo", "stamp", "signature", "label", "caption",
-    "overlay", "brand", "copyright", "mark", "icon", "badge", "tag",
-    "letter", "word", "character", "symbol", "writing", "inscription",
-    "banner", "ribbon", "emblem", "crest", "seal",
-}
-
-# Short labels (1-4 chars) at edges/corners are often watermarks
-_SHORT_LABEL_KEYWORDS = {
-    "www", "http", ".com", ".net", ".org", "©", "®", "tm",
-    "url", "site", "link",
-}
-
+# ── Watermark Auto-Detect (PIL heuristics) ─────────────────────────
 
 async def auto_detect_watermark(image_url: str) -> bytes | None:
-    """Detect watermark regions using Florence-2 OD (open-vocabulary object detection).
-    Falls back to OCR. Returns mask PNG bytes (white = watermark area) or None."""
+    """Generate a mask for potential watermark regions using image analysis.
+    Uses edge detection in corners/edges to find text/logo patterns.
+    Always returns a mask (falls back to conservative corner coverage).
+    Returns mask PNG bytes (white = potential watermark area)."""
 
-    bboxes = []
-    labels = []
-
-    # Strategy 1: Object detection targeting watermarks/logos/text
-    try:
-        async def _detect_od():
-            return await _run_model(
-                FLORENCE2_MODEL,
-                input={
-                    "image": image_url,
-                    "task": "<OD>",
-                    "prompt": "watermark, logo, text, signature, stamp",
-                },
-            )
-        result = await retry_with_backoff(_detect_od, max_retries=1, base_delay=2)
-        logger.info("Florence-2 OD result type: %s", type(result).__name__)
-
-        if isinstance(result, dict):
-            od_data = result.get("<OD>", {})
-        elif isinstance(result, str):
-            import json
-            try:
-                parsed = json.loads(result)
-                od_data = parsed.get("<OD>", {})
-            except (json.JSONDecodeError, AttributeError):
-                od_data = {}
-        else:
-            od_data = {}
-
-        bboxes = od_data.get("bboxes", [])
-        labels = od_data.get("labels", [])
-        logger.info("Florence-2 OD: %d detections, labels=%s",
-            len(labels), labels[:10] if labels else "none")
-    except Exception as e:
-        logger.warning("Florence-2 OD failed: %s", str(e))
-
-    # Strategy 2: OCR for text watermarks
-    if not bboxes:
-        try:
-            async def _detect_ocr():
-                return await _run_model(
-                    FLORENCE2_MODEL,
-                    input={"image": image_url, "task": "<OCR_WITH_REGION>"},
-                )
-            result = await retry_with_backoff(_detect_ocr, max_retries=1, base_delay=2)
-
-            if isinstance(result, dict):
-                ocr_data = result.get("<OCR_WITH_REGION>", {})
-            elif isinstance(result, str):
-                import json
-                try:
-                    parsed = json.loads(result)
-                    ocr_data = parsed.get("<OCR_WITH_REGION>", {})
-                except (json.JSONDecodeError, AttributeError):
-                    ocr_data = {}
-            else:
-                ocr_data = {}
-
-            ocr_bboxes = ocr_data.get("bboxes", [])
-            ocr_labels = ocr_data.get("labels", [])
-            logger.info("Florence-2 OCR: %d text regions, labels=%s",
-                len(ocr_labels), ocr_labels[:5] if ocr_labels else "none")
-
-            if ocr_bboxes:
-                bboxes = ocr_bboxes
-                labels = ocr_labels
-        except Exception as e:
-            logger.warning("Florence-2 OCR failed: %s", str(e))
-
-    if bboxes:
-        selected = bboxes  # Use all OD/OCR detections directly
-        logger.info("Auto-detect: using %d detected regions for mask", len(selected))
-    else:
-        logger.info("Auto-detect: no watermarks detected by any method")
-        return None
-
-    # Fetch image to get dimensions
+    # Fetch image
     try:
         import httpx
         resp = httpx.get(image_url, follow_redirects=True, timeout=15)
-        img = Image.open(io_module.BytesIO(resp.content))
+        img = Image.open(io_module.BytesIO(resp.content)).convert("RGB")
         w, h = img.size
     except Exception as e:
-        logger.warning("Auto-detect: failed to fetch image for dimensions: %s", str(e))
+        logger.warning("Auto-detect: failed to fetch image: %s", str(e))
         return None
 
-    # Build mask
-    mask = Image.new("L", (w, h), 0)
-    draw = ImageDraw.Draw(mask)
-    for bbox in selected:
-        x1 = max(0, int(bbox[0] / 1000 * w))
-        y1 = max(0, int(bbox[1] / 1000 * h))
-        x2 = min(w, int(bbox[2] / 1000 * w))
-        y2 = min(h, int(bbox[3] / 1000 * h))
-        pad = max(12, min(w, h) // 25)
-        draw.rectangle([
-            max(0, x1 - pad), max(0, y1 - pad),
-            min(w, x2 + pad), min(h, y2 + pad)
-        ], fill=255)
+    arr = np.array(img, dtype=np.float32)
 
-    from PIL import ImageFilter
-    mask = mask.filter(ImageFilter.MaxFilter(3))
+    mask = np.zeros((h, w), dtype=np.uint8)
+
+    # Define regions to scan for watermarks (as fraction of image)
+    regions = [
+        ("bottom",  0.0, 0.85, 1.0, 1.0),    # bottom 15%
+        ("right",   0.85, 0.0, 1.0, 1.0),     # right 15%
+        ("top",     0.0, 0.0, 1.0, 0.10),      # top 10%
+        ("left",    0.0, 0.0, 0.10, 1.0),      # left 10%
+    ]
+
+    found_any = False
+    for name, fx1, fy1, fx2, fy2 in regions:
+        x1, y1 = int(fx1 * w), int(fy1 * h)
+        x2, y2 = int(fx2 * w), int(fy2 * h)
+        if x2 <= x1 or y2 <= y1:
+            continue
+
+        region = arr[y1:y2, x1:x2]
+
+        # Compute local standard deviation (high std = text/logo detail)
+        gray = np.mean(region, axis=2)
+        # Use a small kernel to find high-frequency content (text edges)
+        region_img = Image.fromarray(region.astype(np.uint8))
+        edges = region_img.filter(ImageFilter.FIND_EDGES)
+        edge_arr = np.array(edges, dtype=np.float32)
+        edge_intensity = np.mean(edge_arr, axis=2)
+
+        # Threshold: high edge intensity = likely text/watermark
+        edge_threshold = 40  # Adjust based on testing
+        high_edge = edge_intensity > edge_threshold
+        edge_density = high_edge.mean()
+
+        logger.info("Auto-detect: region '%s' edge_density=%.4f", name, edge_density)
+
+        if edge_density > 0.03:  # >3% pixels are edges = likely text/graphics
+            mask[y1:y2, x1:x2] = np.where(high_edge, 255, 0).astype(np.uint8)
+            found_any = True
+
+    if not found_any:
+        # Fallback: cover common watermark positions with conservative masks
+        logger.info("Auto-detect: no text detected, using corner fallback masks")
+
+        # Bottom-right corner
+        br_x1, br_y1 = int(w * 0.75), int(h * 0.80)
+        mask[br_y1:h, br_x1:w] = 255
+
+        # Bottom strip (center-bottom)
+        bs_y1 = int(h * 0.90)
+        mask[bs_y1:h, int(w * 0.25):int(w * 0.75)] = 255
+
+        # Top-right corner
+        tr_y2 = int(h * 0.10)
+        mask[0:tr_y2, int(w * 0.80):w] = 255
+
+    # Dilate mask for better inpainting
+    mask_img = Image.fromarray(mask, mode="L")
+    mask_img = mask_img.filter(ImageFilter.MaxFilter(5))
+    mask_img = mask_img.filter(ImageFilter.GaussianBlur(radius=2))
+
+    white_px = int(np.array(mask_img).sum() // 255)
+    logger.info("Auto-detect: generated mask %dx%d, white px=%d", w, h, white_px)
+
+    if white_px == 0:
+        return None
 
     buf = io_module.BytesIO()
-    mask.save(buf, format="PNG")
+    mask_img.save(buf, format="PNG")
     return buf.getvalue()
 
 
