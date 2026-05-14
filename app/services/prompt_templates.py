@@ -125,23 +125,10 @@ STYLE_PROMPTS: dict[str, str] = {
         "textured cold-press paper, elegant artistic finish with controlled blooms, "
         "high quality, {user_prompt}"
     ),
-    "anime": (
-        "professional anime art style, cel shading with crisp clean linework, vibrant "
-        "saturated colors, studio-quality key visual illustration, Japanese animation "
-        "aesthetic, detailed hair with highlights, expressive composition, "
-        "high quality, {user_prompt}"
-    ),
     "sketch": (
         "detailed pencil sketch, graphite drawing with fine cross-hatching and smooth "
         "shading, black and white line art, professional illustration with clean precise "
         "lines, academic drawing style, high contrast monochrome, "
-        "high quality, {user_prompt}"
-    ),
-    "chinese-painting": (
-        "traditional Chinese ink wash painting combined with modern guochao illustration, "
-        "flowing ink brushwork, delicate line art, soft watercolor washes, elegant "
-        "composition, Chinese cultural aesthetic, vibrant yet harmonious colors, "
-        "illustration style blending classical and contemporary, "
         "high quality, {user_prompt}"
     ),
     "cartoon": (
@@ -150,12 +137,24 @@ STYLE_PROMPTS: dict[str, str] = {
         "professional digital art render, volumetric lighting, subsurface scattering, "
         "high quality, {user_prompt}"
     ),
+    "cyberpunk": (
+        "cyberpunk style, neon lights reflecting on wet streets, holographic displays, "
+        "cybernetic augmentations, futuristic dystopian cityscape, synthwave color palette "
+        "with electric blues and hot pinks, high tech low life aesthetic, blade runner inspired, "
+        "high quality, {user_prompt}"
+    ),
+    "fantasy": (
+        "epic fantasy art style, magical glowing elements, ethereal atmosphere, dramatic "
+        "cinematic lighting, mythical realm, iridescent sparkles and luminous particles, "
+        "enchanting mystical aesthetic, dreamlike surreal quality, fantasy illustration "
+        "masterpiece, high quality, {user_prompt}"
+    ),
 }
 
 # ── Style Transfer: per-style locked generation parameters ────────
 STYLE_PARAMS: dict[str, dict] = {
     "oil-painting": {
-        "prompt_strength": 0.55,
+        "prompt_strength": 0.62,
         "num_inference_steps": 35,
         "guidance_scale": 7.5,
     },
@@ -164,23 +163,23 @@ STYLE_PARAMS: dict[str, dict] = {
         "num_inference_steps": 30,
         "guidance_scale": 7.5,
     },
-    "anime": {
-        "prompt_strength": 0.60,
-        "num_inference_steps": 30,
-        "guidance_scale": 8.0,
-    },
     "sketch": {
-        "prompt_strength": 0.45,
+        "prompt_strength": 0.40,
         "num_inference_steps": 25,
         "guidance_scale": 7.0,
     },
-    "chinese-painting": {
-        "prompt_strength": 0.55,
-        "num_inference_steps": 35,
-        "guidance_scale": 7.5,
-    },
     "cartoon": {
         "prompt_strength": 0.60,
+        "num_inference_steps": 35,
+        "guidance_scale": 8.0,
+    },
+    "cyberpunk": {
+        "prompt_strength": 0.55,
+        "num_inference_steps": 35,
+        "guidance_scale": 8.0,
+    },
+    "fantasy": {
+        "prompt_strength": 0.55,
         "num_inference_steps": 35,
         "guidance_scale": 8.0,
     },
@@ -192,22 +191,15 @@ STYLE_NEGATIVE_PROMPTS: dict[str, str] = {
         "deformed limbs, distorted facial features, deformed body, twisted face, "
         "blurry, low quality, low resolution, worst quality, ugly, watermark, text, "
         "signature, bad anatomy, extra limbs, disfigured, poorly drawn face, mutation, "
-        "photorealistic, 3D render, digital art, flat colors, cartoon, anime, "
+        "photorealistic, 3D render, digital art, flat colors, cartoon, "
         "abstract expressionism, messy chaotic brushwork"
     ),
     "watercolor": (
         "deformed limbs, distorted facial features, deformed body, twisted face, "
         "blurry, low quality, low resolution, worst quality, ugly, watermark, text, "
         "signature, bad anatomy, extra limbs, disfigured, poorly drawn face, mutation, "
-        "thick paint, oil painting texture, bold heavy outlines, cartoon, digital art, "
+        "thick paint, oil painting texture, bold heavy outlines, digital art, "
         "photorealistic, 3D render, muddy colors, overworked painting"
-    ),
-    "anime": (
-        "deformed limbs, distorted facial features, deformed body, twisted face, "
-        "blurry, low quality, low resolution, worst quality, ugly, watermark, text, "
-        "signature, bad anatomy, extra limbs, disfigured, poorly drawn face, mutation, "
-        "realistic photo, 3D render, western cartoon style, messy sketchy lineart, "
-        "inconsistent art style, dull desaturated colors, photographic details"
     ),
     "sketch": (
         "deformed limbs, distorted facial features, deformed body, twisted face, "
@@ -216,19 +208,26 @@ STYLE_NEGATIVE_PROMPTS: dict[str, str] = {
         "color, painting, digital art, photorealistic, 3D render, rendered shading, "
         "smooth gradients, messy scribble, dirty smudged lines"
     ),
-    "chinese-painting": (
-        "deformed limbs, distorted facial features, deformed body, twisted face, "
-        "blurry, low quality, low resolution, worst quality, ugly, watermark, text, "
-        "signature, bad anatomy, extra limbs, disfigured, poorly drawn face, mutation, "
-        "photorealistic, 3D render, oil painting texture, western painting style, "
-        "cartoon, anime, thick heavy outlines, messy splatter, unbalanced composition"
-    ),
     "cartoon": (
         "deformed limbs, distorted facial features, deformed body, twisted face, "
         "blurry, low quality, low resolution, worst quality, ugly, watermark, text, "
         "signature, bad anatomy, extra limbs, disfigured, poorly drawn face, mutation, "
-        "realistic photo, anime style, 2D flat illustration, creepy uncanny valley, "
+        "realistic photo, 2D flat illustration, creepy uncanny valley, "
         "plastic toy look, poor lighting, dull flat shading, gritty texture"
+    ),
+    "cyberpunk": (
+        "deformed limbs, distorted facial features, deformed body, twisted face, "
+        "blurry, low quality, low resolution, worst quality, ugly, watermark, text, "
+        "signature, bad anatomy, extra limbs, disfigured, poorly drawn face, mutation, "
+        "photorealistic photo, natural daylight, rural countryside, historical period, "
+        "pastel colors, minimalist, plain background, boring composition"
+    ),
+    "fantasy": (
+        "deformed limbs, distorted facial features, deformed body, twisted face, "
+        "blurry, low quality, low resolution, worst quality, ugly, watermark, text, "
+        "signature, bad anatomy, extra limbs, disfigured, poorly drawn face, mutation, "
+        "realistic documentary photo, modern urban setting, mundane everyday scene, "
+        "dull desaturated colors, harsh unnatural lighting, horror gore, dark gritty"
     ),
 }
 
