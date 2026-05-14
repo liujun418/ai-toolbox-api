@@ -52,15 +52,11 @@ async def run_background_remover(image_url: str) -> tuple[str, str | None]:
 async def run_watermark_removal(image_url: str, mask_url: str) -> tuple[str, str | None]:
     """Remove watermarks using BRIA Eraser (professional inpainting).
     Returns (output_url, replicate_id). Raises if output is empty."""
-    tpl = TOOL_PROMPTS["watermark-remover"]
-    inp = {
-        "image": image_url,
-        "mask": mask_url,
-        **tpl.default_params,
-    }
     async def _call():
-        return await _run_model(tpl.model, input=inp)
-
+        return await _run_model(
+            TOOL_PROMPTS["watermark-remover"].model,
+            input={"image": image_url, "mask": mask_url},
+        )
     output = await retry_with_backoff(_call)
     if isinstance(output, list):
         if not output:
