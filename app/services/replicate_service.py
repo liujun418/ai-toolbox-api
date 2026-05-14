@@ -279,13 +279,10 @@ async def run_style_transfer(
 
 # ── Text Polish ──────────────────────────────────────────────────
 
-import re
-
-
 def _detect_language(text: str) -> str:
     """Detect if text is primarily Chinese or English.
     Returns 'zh' if >30% CJK characters, 'en' otherwise."""
-    cjk_count = len(re.findall(r'[一-鿿㐀-䶿]', text))
+    cjk_count = sum(1 for c in text if '一' <= c <= '鿿' or '㐀' <= c <= '䶿')
     total_chars = len(text.replace(' ', '').replace('\n', ''))
     if total_chars == 0:
         return 'en'
