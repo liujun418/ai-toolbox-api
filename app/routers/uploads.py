@@ -289,6 +289,32 @@ async def upload_and_process(
                 img_w, img_h, mask_img.size)
             result_url, replicate_id = await run_watermark_removal(image_url, mask_url)
             logger.info("Watermark removal: model returned result_url=%s", result_url)
+
+            # Diagnostic: check if model output differs from input
+            try:
+                import httpx
+                import numpy as np
+                input_resp = httpx.get(image_url, follow_redirects=True, timeout=15)
+                output_resp = httpx.get(result_url, follow_redirects=True, timeout=15)
+                if input_resp.status_code == 200 and output_resp.status_code == 200:
+                    input_img = Image.open(io_module.BytesIO(input_resp.content))
+                    output_img = Image.open(io_module.BytesIO(output_resp.content))
+                    # Resize to same dimensions for comparison
+                    if output_img.size != input_img.size:
+                        output_img = output_img.resize(input_img.size, Image.LANCZOS)
+                    input_arr = np.array(input_img.convert("RGB"), dtype=np.int16)
+                    output_arr = np.array(output_img.convert("RGB"), dtype=np.int16)
+                    diff = np.abs(input_arr - output_arr)
+                    diff_pct = float(diff.mean()) / 255.0 * 100
+                    identical = float(diff.sum()) == 0
+                    logger.info("Watermark removal: input vs output diff=%.2f%%, identical=%s, sizes input=%s output=%s",
+                        diff_pct, identical, input_img.size, output_img.size)
+                else:
+                    logger.warning("Watermark removal: could not download for comparison (input=%d output=%d)",
+                        input_resp.status_code, output_resp.status_code)
+            except Exception as diag_e:
+                logger.warning("Watermark removal: comparison failed: %s", str(diag_e))
+
             task.output_file_url = result_url
             task.status = TaskStatus.COMPLETED
             task.completed_at = datetime.now(UTC)
