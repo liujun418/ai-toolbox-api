@@ -202,12 +202,9 @@ async def upload_and_process(
                     except ValueError:
                         pass
 
-            mask_bytes = None
-            if mask is not None and mask.filename:
-                mask_bytes = await mask.read()
-
-            if mask_bytes and len(mask_bytes) > 100:
+            if mask is not None and mask.filename and mask.size and mask.size > 0:
                 # Manual keep mode: user-painted mask
+                mask_bytes = await mask.read()
                 user_mask = Image.open(io_module.BytesIO(mask_bytes)).convert("L")
                 orig_img = Image.open(io_module.BytesIO(file_bytes)).convert("RGBA")
                 if user_mask.size != orig_img.size:
@@ -238,32 +235,16 @@ async def upload_and_process(
             orig_img = Image.open(io_module.BytesIO(file_bytes))
             img_w, img_h = orig_img.size
 
-            # Read and validate mask (user-painted or auto-detected)
-            mask_bytes = None
-            if mask is not None and mask.filename:
+            if mask is not None and mask.filename and mask.size and mask.size > 0:
+                # User-painted mask → BRIA Eraser (precise)
                 mask_bytes = await mask.read()
-                logger.info("Watermark removal: received mask file '%s' (%d bytes)",
-                    mask.filename, len(mask_bytes) if mask_bytes else 0)
-
-            if mask_bytes and len(mask_bytes) > 100:
-                # User-painted mask → Inpainting model (precise)
                 mask_img = Image.open(io_module.BytesIO(mask_bytes)).convert("L")
                 if mask_img.size != orig_img.size:
                     mask_img = mask_img.resize(orig_img.size, Image.LANCZOS)
-                # Count white pixels for diagnostics
-                import numpy as np
-                white_px = int(np.array(mask_img).sum() // 255)
-                logger.info("Watermark removal: user-painted mask %s, white px=%d, image %dx%d",
-                    mask_img.size, white_px, img_w, img_h)
-                if white_px == 0:
-                    logger.warning("Watermark removal: mask is all black, falling back to auto-detect")
-                    mask_bytes = None
+                logger.info("Watermark removal: user-painted mask, image %dx%d", img_w, img_h)
             else:
-                mask_bytes = None  # No valid mask provided
-
-            if mask_bytes is None:
                 # No user mask → auto-detect watermark with Florence-2
-                logger.info("Watermark removal: no valid mask, auto-detecting with Florence-2")
+                logger.info("Watermark removal: no user mask, auto-detecting with Florence-2")
                 auto_mask_bytes = await auto_detect_watermark(image_url)
                 if auto_mask_bytes is None:
                     raise HTTPException(
@@ -273,48 +254,15 @@ async def upload_and_process(
                 mask_img = Image.open(io_module.BytesIO(auto_mask_bytes)).convert("L")
                 if mask_img.size != orig_img.size:
                     mask_img = mask_img.resize(orig_img.size, Image.LANCZOS)
-                import numpy as np
-                white_px = int(np.array(mask_img).sum() // 255)
-                logger.info("Watermark removal: auto-detected mask, white px=%d", white_px)
 
-            # Upload mask to S3
+            # BRIA Eraser convention: white (255) = erase area, black (0) = keep
             mask_buf = io_module.BytesIO()
             mask_img.save(mask_buf, format="PNG")
             mask_key = f"masks/{user.id}/{uuid.uuid4().hex}.png"
             await upload_file(mask_buf.getvalue(), mask_key, "image/png")
             mask_url = generate_presigned_url(mask_key, expires_in=3600)
 
-            # Call inpainting model
-            logger.info("Watermark removal: calling model with image %dx%d and mask %s",
-                img_w, img_h, mask_img.size)
             result_url, replicate_id = await run_watermark_removal(image_url, mask_url)
-            logger.info("Watermark removal: model returned result_url=%s", result_url)
-
-            # Diagnostic: check if model output differs from input
-            try:
-                import httpx
-                import numpy as np
-                input_resp = httpx.get(image_url, follow_redirects=True, timeout=15)
-                output_resp = httpx.get(result_url, follow_redirects=True, timeout=15)
-                if input_resp.status_code == 200 and output_resp.status_code == 200:
-                    input_img = Image.open(io_module.BytesIO(input_resp.content))
-                    output_img = Image.open(io_module.BytesIO(output_resp.content))
-                    # Resize to same dimensions for comparison
-                    if output_img.size != input_img.size:
-                        output_img = output_img.resize(input_img.size, Image.LANCZOS)
-                    input_arr = np.array(input_img.convert("RGB"), dtype=np.int16)
-                    output_arr = np.array(output_img.convert("RGB"), dtype=np.int16)
-                    diff = np.abs(input_arr - output_arr)
-                    diff_pct = float(diff.mean()) / 255.0 * 100
-                    identical = float(diff.sum()) == 0
-                    logger.info("Watermark removal: input vs output diff=%.2f%%, identical=%s, sizes input=%s output=%s",
-                        diff_pct, identical, input_img.size, output_img.size)
-                else:
-                    logger.warning("Watermark removal: could not download for comparison (input=%d output=%d)",
-                        input_resp.status_code, output_resp.status_code)
-            except Exception as diag_e:
-                logger.warning("Watermark removal: comparison failed: %s", str(diag_e))
-
             task.output_file_url = result_url
             task.status = TaskStatus.COMPLETED
             task.completed_at = datetime.now(UTC)

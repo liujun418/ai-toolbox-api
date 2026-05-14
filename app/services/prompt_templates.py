@@ -32,12 +32,7 @@ NEGATIVE_REMBG = (
     "incomplete removal, semi-transparent residue, background bleeding, "
     "clipped details, over-smooth, over-erased, broken edges, noise"
 )
-NEGATIVE_INPAINTING = (
-    "blurry, smudged, deformed textures, inconsistent lighting, "
-    "visible seam, obvious edit marks, ghost artifacts, residual text, "
-    "low quality, watermark remnants, logo remnants, unnatural patterns, "
-    "JPEG artifacts, noise, oversharpened"
-)
+NEGATIVE_ERASER = "blurry, smudged, unnatural, low quality artifacts"
 
 # ── Tool templates ────────────────────────────────────────────────
 
@@ -52,7 +47,7 @@ TOOL_PROMPTS: dict[str, PromptTemplate] = {
     "watermark-remover": PromptTemplate(
         model="bria/eraser:893e924eecc119a0c5fbfa5d98401118dcbf0662574eb8d2c01be5749756cbd4",
         positive_prompt="",
-        negative_prompt="",
+        negative_prompt=NEGATIVE_ERASER,
         default_params={},
     ),
 
