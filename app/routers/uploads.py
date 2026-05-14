@@ -202,7 +202,7 @@ async def upload_and_process(
                     except ValueError:
                         pass
 
-            if mask is not None and mask.filename and mask.size and mask.size > 0:
+            if mask is not None and mask.filename:
                 # Manual keep mode: user-painted mask
                 mask_bytes = await mask.read()
                 user_mask = Image.open(io_module.BytesIO(mask_bytes)).convert("L")
@@ -235,7 +235,7 @@ async def upload_and_process(
             orig_img = Image.open(io_module.BytesIO(file_bytes))
             img_w, img_h = orig_img.size
 
-            if mask is not None and mask.filename and mask.size and mask.size > 0:
+            if mask is not None and mask.filename:
                 # User-painted mask → BRIA Eraser (precise)
                 mask_bytes = await mask.read()
                 mask_img = Image.open(io_module.BytesIO(mask_bytes)).convert("L")
