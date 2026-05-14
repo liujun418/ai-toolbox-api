@@ -51,41 +51,36 @@ IMAGE_TOOL_TYPES = {
 
 ALLOWED_IMAGE_CONTENT_TYPES = {"image/png", "image/jpeg", "image/webp"}
 
-# Friendly error messages for known failure patterns
-ERROR_MESSAGES = {
-    "timeout": "Processing timed out — this may be due to input size or server load. Try again with smaller input.",
-    "rate_limit": "Too many requests right now. Please wait a moment and try again.",
-    "model_error": "The AI model couldn't process this request. The input may be too long or in an unexpected format.",
-    "validation": "This file doesn't appear to be a valid image. Please use PNG, JPG, or WebP.",
-    "image_too_small": "The image is too small to upscale meaningfully. Minimum recommended: 100×100 pixels.",
-    "gpu_oom": "The input is too large for the AI model. Try a smaller image (under 3000px) or shorter text.",
-    "face_not_found": "No clear face detected in this image. Face Pro works best with visible, front-facing portraits.",
-    "text_too_long": "The text is too long for the AI to process. Try shortening it or splitting into smaller sections.",
-}
+TEXT_TOOL_TYPES = {"text-polish"}
 
 
-def _friendly_error(message: str) -> str:
-    """Map raw error messages to user-friendly versions."""
+def _friendly_error(message: str, tool_type: str = "") -> str:
+    """Map raw error messages to user-friendly versions. Respects tool type context."""
     msg_lower = message.lower()
+    is_text = tool_type in TEXT_TOOL_TYPES
+    is_image = tool_type in IMAGE_TOOL_TYPES
+
     if "timeout" in msg_lower:
-        return ERROR_MESSAGES["timeout"]
+        return "Processing timed out. Try again with a smaller input." if is_text else \
+               "Processing timed out — this image may be too large or complex. Try a smaller image (under 2000px)."
     if "rate limit" in msg_lower or "429" in msg_lower:
-        return ERROR_MESSAGES["rate_limit"]
+        return "Too many requests right now. Please wait a moment and try again."
     if "memory" in msg_lower or "oom" in msg_lower or "cuda" in msg_lower:
-        return ERROR_MESSAGES["gpu_oom"]
-    if "face" in msg_lower and ("detect" in msg_lower or "not found" in msg_lower or "no face" in msg_lower):
-        return ERROR_MESSAGES["face_not_found"]
-    # Only match "invalid" for image-related errors
-    if ("invalid" in msg_lower and ("image" in msg_lower or "format" in msg_lower or "file" in msg_lower)) \
-            or "corrupt" in msg_lower or "cannot identify" in msg_lower:
-        return ERROR_MESSAGES["validation"]
-    if "too small" in msg_lower or "resolution" in msg_lower:
-        return ERROR_MESSAGES["image_too_small"]
+        return "The input is too large for the AI model. Try shorter text." if is_text else \
+               "The image is too large for the AI model. Try a smaller image (under 3000px on the longest side)."
+    if is_image and "face" in msg_lower and ("detect" in msg_lower or "not found" in msg_lower or "no face" in msg_lower):
+        return "No clear face detected in this image. Face Pro works best with visible, front-facing portraits."
+    if is_image and (("invalid" in msg_lower and ("image" in msg_lower or "format" in msg_lower)) \
+            or "corrupt" in msg_lower or "cannot identify" in msg_lower):
+        return "This file doesn't appear to be a valid image. Please use PNG, JPG, or WebP."
+    if is_image and ("too small" in msg_lower or "resolution" in msg_lower):
+        return "The image is too small for this operation. Minimum recommended: 100×100 pixels."
     if "too long" in msg_lower or "too many" in msg_lower:
-        return ERROR_MESSAGES["text_too_long"]
+        return "The text is too long for the AI to process. Try shortening it or splitting into smaller sections." if is_text else \
+               "The input is too long. Try reducing the size."
     if "replicate" in msg_lower or "model" in msg_lower or "prediction" in msg_lower:
-        return ERROR_MESSAGES["model_error"]
-    # Default: truncate long messages
+        return "The AI model encountered an error. Try again with different input."
+    # Default: return the raw message so we can diagnose
     return message if len(message) < 200 else message[:200] + "..."
 
 
@@ -191,9 +186,12 @@ async def upload_and_process(
                 logger.warning("Preprocessing failed for task %s: %s", task_id, str(e))
                 # Continue with original bytes
 
-        content_type = file.content_type or "image/png"
-        if tool_type in IMAGE_TOOL_TYPES:
+        if tool_type in TEXT_TOOL_TYPES:
+            content_type = file.content_type or "text/plain"
+        elif tool_type in IMAGE_TOOL_TYPES:
             content_type = "image/png"  # preprocess outputs PNG or JPEG
+        else:
+            content_type = file.content_type or "application/octet-stream"
 
         # Upload to storage
         await upload_file(file_bytes, upload_key, content_type)
@@ -437,7 +435,7 @@ async def upload_and_process(
         raise
     except Exception as e:
         task.status = TaskStatus.FAILED
-        task.error_message = _friendly_error(str(e))
+        task.error_message = _friendly_error(str(e), tool_type)
         task.completed_at = datetime.now(UTC)
         db.commit()
         logger.error("Task %s failed: %s", task_id, str(e), exc_info=True)
