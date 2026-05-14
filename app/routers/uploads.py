@@ -78,10 +78,8 @@ def _friendly_error(message: str, tool_type: str = "") -> str:
     if "too long" in msg_lower or "too many" in msg_lower:
         return "The text is too long for the AI to process. Try shortening it or splitting into smaller sections." if is_text else \
                "The input is too long. Try reducing the size."
-    if "replicate" in msg_lower or "model" in msg_lower or "prediction" in msg_lower:
-        return "The AI model encountered an error. Try again with different input."
-    # Default: return the raw message so we can diagnose
-    return message if len(message) < 200 else message[:200] + "..."
+    # Default: return the raw error so we can diagnose real issues
+    return message if len(message) < 300 else message[:300] + "..."
 
 
 @router.post("/{tool_type}", response_model=TaskResponse)
