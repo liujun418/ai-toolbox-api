@@ -287,8 +287,21 @@ async def upload_and_process(
             task.completed_at = datetime.now(UTC)
 
         elif tool_type == "image-upscaler":
-            scale = 4 if (prompt and "4x" in prompt.lower()) else 2
-            output, replicate_id = await run_image_upscaler(image_url, scale)
+            # Parse "photo:2" or "anime:4" from prompt
+            image_type = "photo"
+            scale = 2
+            if prompt:
+                parts = prompt.strip().split(":")
+                if len(parts) == 2:
+                    image_type = parts[0].strip() if parts[0].strip() in ("photo", "anime") else "photo"
+                    scale_str = parts[1].strip().rstrip("x")
+                    try:
+                        scale = int(scale_str)
+                        if scale not in (2, 4):
+                            scale = 2
+                    except ValueError:
+                        scale = 2
+            output, replicate_id = await run_image_upscaler(image_url, scale, image_type)
             task.output_file_url = output
             task.status = TaskStatus.COMPLETED
             task.completed_at = datetime.now(UTC)

@@ -221,13 +221,30 @@ async def run_avatar_generation(
 
 # ── Image Upscaler ────────────────────────────────────────────────
 
-async def run_image_upscaler(image_url: str, scale: int = 2) -> tuple[str, str | None]:
-    """Upscale image. Returns (output_url, replicate_id)."""
+async def run_image_upscaler(image_url: str, scale: int = 2, image_type: str = "photo") -> tuple[str, str | None]:
+    """Upscale image with Real-ESRGAN.
+
+    image_type:
+      - photo: General - v3 model + face_enhance (best for portraits/photos)
+      - anime: Anime - anime6B model, no face_enhance (best for illustrations/anime)
+    """
     tpl = TOOL_PROMPTS["image-upscaler"]
+    if image_type == "anime":
+        version = "Anime - anime6B"
+        face_enhance = False
+    else:
+        version = "General - v3"
+        face_enhance = True
     async def _call():
         return await _run_model(
             tpl.model,
-            input={"image": image_url, "scale": scale, **tpl.default_params},
+            input={
+                "image": image_url,
+                "scale": scale,
+                "version": version,
+                "face_enhance": face_enhance,
+                "tile": tpl.default_params["tile"],
+            },
         )
     output = await retry_with_backoff(_call)
     return str(output), None
