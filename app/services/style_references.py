@@ -13,9 +13,8 @@ SIZE = 768
 SEED = 42
 random.seed(SEED)
 
-# Cache: style_id -> presigned URL
-_url_cache: dict[str, str] = {}
-_initialized = False
+# Track whether style reference images have been uploaded to R2
+_uploaded = False
 
 
 def _oil_painting() -> bytes:
@@ -148,20 +147,26 @@ _GENERATORS = {
     "fantasy": _fantasy,
 }
 
+_STYLE_KEYS = {style_id: f"style-references/{style_id}.png" for style_id in _GENERATORS}
+
 
 async def init_style_references():
     """Generate and upload all style reference images to R2. Called once at startup."""
-    global _initialized
-    if _initialized:
+    global _uploaded
+    if _uploaded:
         return
     for style_id, generator in _GENERATORS.items():
         image_bytes = generator()
-        key = f"style-references/{style_id}.png"
+        key = _STYLE_KEYS[style_id]
         await upload_file(image_bytes, key, "image/png")
-        _url_cache[style_id] = generate_presigned_url(key, expires_in=86400 * 365)
-    _initialized = True
+    _uploaded = True
 
 
 def get_style_reference_url(style_id: str) -> str | None:
-    """Get the presigned URL for a style reference image. Must call init_style_references() first."""
-    return _url_cache.get(style_id)
+    """Get a fresh presigned URL for a style reference image.
+    Generates a new URL each call — no caching, no expiration issues.
+    """
+    key = _STYLE_KEYS.get(style_id)
+    if not key:
+        return None
+    return generate_presigned_url(key, expires_in=3600)
