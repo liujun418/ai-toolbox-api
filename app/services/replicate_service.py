@@ -366,7 +366,7 @@ async def run_text_polish(text: str, mode: str = "polish") -> str:
                 input={
                     "system_prompt": instruction,
                     "prompt": chunk,
-                    "max_tokens": 8192,
+                    "max_tokens": 4096,
                     "temperature": 0.5,
                 },
             )
