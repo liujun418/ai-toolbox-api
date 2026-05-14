@@ -362,7 +362,7 @@ async def run_text_polish(text: str, mode: str = "polish") -> str:
             client = _get_client()
             return await asyncio.to_thread(
                 client.run,
-                "meta/meta-llama-3.1-70b-instruct:baf226e1f0cc30952e39198a7dc1e8083d2686196464e0665e2d88108db29c61",
+                "meta/meta-llama-3-70b-instruct:fbfb20b472b2f3bdd101412a9f70a0ed4fc0ced78a77ff00970ee7a2383c575d",
                 input={
                     "system_prompt": instruction,
                     "prompt": chunk,
