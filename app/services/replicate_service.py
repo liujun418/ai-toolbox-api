@@ -161,21 +161,12 @@ async def auto_detect_watermark(image_url: str) -> bytes | None:
 
 # ── Photo Restorer ────────────────────────────────────────────────
 
-TOPAZ_STRENGTH = {
-    "light":  {"grain": False},
-    "medium": {"grain": False},
-    "heavy":  {"grain": False},
-}
-
-
-async def run_photo_restoration(image_url: str, strength: str = "medium") -> tuple[str, str | None]:
+async def run_photo_restoration(image_url: str, strength: str = "auto") -> tuple[str, str | None]:
     """Restore old/damaged photo.
 
     Strength levels:
-      - light:  Topaz D&S — clean scratch removal + light postprocess
-      - medium: Topaz D&S — scratch removal + moderate sharpen/contrast (default)
-      - heavy:  Topaz D&S — scratch removal + aggressive sharpen/contrast
-      - face:   GFPGAN — dedicated face enhancement, preserves age features
+      - auto: Topaz D&S — automatic scratch/dust/blemish removal
+      - face: GFPGAN — dedicated face enhancement, preserves age features
     """
     if strength == "face":
         tpl = TOOL_PROMPTS["photo-restorer-face"]
@@ -187,16 +178,7 @@ async def run_photo_restoration(image_url: str, strength: str = "medium") -> tup
             )
     else:
         tpl = TOOL_PROMPTS["photo-restorer"]
-        s = TOPAZ_STRENGTH.get(strength, TOPAZ_STRENGTH["medium"])
         inp = {"image": image_url, "output_format": tpl.default_params["output_format"]}
-        if s["grain"]:
-            inp.update({
-                "grain": True,
-                "grain_model": tpl.default_params["grain_model"],
-                "grain_strength": tpl.default_params["grain_strength"],
-                "grain_density": tpl.default_params["grain_density"],
-                "grain_size": tpl.default_params["grain_size"],
-            })
         async def _call():
             return await _run_model(tpl.model, input=inp)
     output = await retry_with_backoff(_call)
