@@ -99,136 +99,25 @@ TOOL_PROMPTS: dict[str, PromptTemplate] = {
     ),
 
     "style-transfer": PromptTemplate(
-        model="stability-ai/sdxl:7762fd07cf82c948538e41f63f77d685e02b063e37e496e96eefd46c929f9bdc",
-        positive_prompt="",  # Filled per-style from STYLE_PROMPTS
-        negative_prompt=NEGATIVE_SDXL,  # Overridden per-style from STYLE_NEGATIVE_PROMPTS
+        model="fofr/style-transfer:f1023890703bc0a5a3a2c21b5e498833be5f6ef6e70e9daf6b9b3a4fd8309cf0",
+        positive_prompt="",  # Filled per-style from STYLE_REFERENCE_PROMPTS
+        negative_prompt="",
         default_params={
-            "prompt_strength": 0.55,
-            "num_outputs": 1,
-            "num_inference_steps": 30,
-            "guidance_scale": 7.5,
+            "structure_depth_strength": 0.9,
+            "structure_denoising_strength": 0.65,
+            "number_of_images": 1,
         },
     ),
 }
 
-# ── Style-specific prompts for style-transfer ─────────────────────
-STYLE_PROMPTS: dict[str, str] = {
-    "oil-painting": (
-        "masterful oil painting, thick impasto brush strokes with visible canvas texture, "
-        "rich warm earthy color palette, classical composition with dramatic lighting, "
-        "museum quality fine art, Rembrandt-inspired chiaroscuro, painterly aesthetic, "
-        "high quality, {user_prompt}"
-    ),
-    "watercolor": (
-        "beautiful watercolor painting, soft translucent washes, delicate wet-on-wet "
-        "blending, flowing colors with subtle granulation, fine art illustration on "
-        "textured cold-press paper, elegant artistic finish with controlled blooms, "
-        "high quality, {user_prompt}"
-    ),
-    "sketch": (
-        "detailed pencil sketch, graphite drawing with fine cross-hatching and smooth "
-        "shading, black and white line art, professional illustration with clean precise "
-        "lines, academic drawing style, high contrast monochrome, "
-        "high quality, {user_prompt}"
-    ),
-    "cartoon": (
-        "Pixar-style 3D cartoon character, smooth polished skin, expressive face, "
-        "vibrant playful colors, soft cinematic lighting, cute charming proportions, "
-        "professional digital art render, volumetric lighting, subsurface scattering, "
-        "high quality, {user_prompt}"
-    ),
-    "cyberpunk": (
-        "cyberpunk style, neon lights reflecting on wet streets, holographic displays, "
-        "cybernetic augmentations, futuristic dystopian cityscape, synthwave color palette "
-        "with electric blues and hot pinks, high tech low life aesthetic, blade runner inspired, "
-        "high quality, {user_prompt}"
-    ),
-    "fantasy": (
-        "epic fantasy art style, magical glowing elements, ethereal atmosphere, dramatic "
-        "cinematic lighting, mythical realm, iridescent sparkles and luminous particles, "
-        "enchanting mystical aesthetic, dreamlike surreal quality, fantasy illustration "
-        "masterpiece, high quality, {user_prompt}"
-    ),
-}
-
-# ── Style Transfer: per-style locked generation parameters ────────
-STYLE_PARAMS: dict[str, dict] = {
-    "oil-painting": {
-        "prompt_strength": 0.62,
-        "num_inference_steps": 35,
-        "guidance_scale": 7.5,
-    },
-    "watercolor": {
-        "prompt_strength": 0.50,
-        "num_inference_steps": 30,
-        "guidance_scale": 7.5,
-    },
-    "sketch": {
-        "prompt_strength": 0.40,
-        "num_inference_steps": 25,
-        "guidance_scale": 7.0,
-    },
-    "cartoon": {
-        "prompt_strength": 0.60,
-        "num_inference_steps": 35,
-        "guidance_scale": 8.0,
-    },
-    "cyberpunk": {
-        "prompt_strength": 0.55,
-        "num_inference_steps": 35,
-        "guidance_scale": 8.0,
-    },
-    "fantasy": {
-        "prompt_strength": 0.55,
-        "num_inference_steps": 35,
-        "guidance_scale": 8.0,
-    },
-}
-
-# ── Style Transfer: per-style negative prompts ────────────────────
-STYLE_NEGATIVE_PROMPTS: dict[str, str] = {
-    "oil-painting": (
-        "deformed limbs, distorted facial features, deformed body, twisted face, "
-        "blurry, low quality, low resolution, worst quality, ugly, watermark, text, "
-        "signature, bad anatomy, extra limbs, disfigured, poorly drawn face, mutation, "
-        "photorealistic, 3D render, digital art, flat colors, cartoon, "
-        "abstract expressionism, messy chaotic brushwork"
-    ),
-    "watercolor": (
-        "deformed limbs, distorted facial features, deformed body, twisted face, "
-        "blurry, low quality, low resolution, worst quality, ugly, watermark, text, "
-        "signature, bad anatomy, extra limbs, disfigured, poorly drawn face, mutation, "
-        "thick paint, oil painting texture, bold heavy outlines, digital art, "
-        "photorealistic, 3D render, muddy colors, overworked painting"
-    ),
-    "sketch": (
-        "deformed limbs, distorted facial features, deformed body, twisted face, "
-        "blurry, low quality, low resolution, worst quality, ugly, watermark, text, "
-        "signature, bad anatomy, extra limbs, disfigured, poorly drawn face, mutation, "
-        "color, painting, digital art, photorealistic, 3D render, rendered shading, "
-        "smooth gradients, messy scribble, dirty smudged lines"
-    ),
-    "cartoon": (
-        "deformed limbs, distorted facial features, deformed body, twisted face, "
-        "blurry, low quality, low resolution, worst quality, ugly, watermark, text, "
-        "signature, bad anatomy, extra limbs, disfigured, poorly drawn face, mutation, "
-        "realistic photo, 2D flat illustration, creepy uncanny valley, "
-        "plastic toy look, poor lighting, dull flat shading, gritty texture"
-    ),
-    "cyberpunk": (
-        "deformed limbs, distorted facial features, deformed body, twisted face, "
-        "blurry, low quality, low resolution, worst quality, ugly, watermark, text, "
-        "signature, bad anatomy, extra limbs, disfigured, poorly drawn face, mutation, "
-        "photorealistic photo, natural daylight, rural countryside, historical period, "
-        "pastel colors, minimalist, plain background, boring composition"
-    ),
-    "fantasy": (
-        "deformed limbs, distorted facial features, deformed body, twisted face, "
-        "blurry, low quality, low resolution, worst quality, ugly, watermark, text, "
-        "signature, bad anatomy, extra limbs, disfigured, poorly drawn face, mutation, "
-        "realistic documentary photo, modern urban setting, mundane everyday scene, "
-        "dull desaturated colors, harsh unnatural lighting, horror gore, dark gritty"
-    ),
+# ── Style Transfer: per-style text prompts (accompany reference images) ──
+STYLE_REFERENCE_PROMPTS: dict[str, str] = {
+    "oil-painting": "oil painting, thick impasto brushstrokes, canvas texture, fine art",
+    "watercolor": "watercolor painting, soft delicate washes, artistic, flowing colors",
+    "sketch": "pencil sketch, graphite drawing, detailed, black and white, hand-drawn",
+    "cartoon": "3D Pixar style cartoon, smooth, polished, vibrant colors, cute",
+    "cyberpunk": "cyberpunk, neon lights, futuristic synthwave, electric colors",
+    "fantasy": "fantasy art, magical glowing, ethereal, mystical, dreamlike",
 }
 
 # ── Avatar Generator: per-style positive prompts ──────────────────

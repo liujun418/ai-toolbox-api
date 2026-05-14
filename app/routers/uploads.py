@@ -324,12 +324,7 @@ async def upload_and_process(
                     if s in prompt.lower():
                         style = s
                         break
-            user_desc = ""
-            if prompt:
-                style_kw = [s for s in ["oil-painting", "watercolor", "sketch", "cartoon", "cyberpunk", "fantasy"] if s in prompt.lower()]
-                if style_kw:
-                    user_desc = prompt.lower().replace(style_kw[0], "").strip()
-            output, replicate_id = await run_style_transfer(image_url, style, user_desc)
+            output, replicate_id = await run_style_transfer(image_url, style)
             task.output_file_url = output
             task.status = TaskStatus.COMPLETED
             task.completed_at = datetime.now(UTC)

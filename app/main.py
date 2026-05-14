@@ -48,6 +48,8 @@ def _ensure_db_columns():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     _ensure_db_columns()
+    from app.services.style_references import init_style_references
+    await init_style_references()
     yield
 
 
