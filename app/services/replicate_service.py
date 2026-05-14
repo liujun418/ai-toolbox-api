@@ -277,30 +277,104 @@ async def run_style_transfer(
     return urls[0] if urls else "", None
 
 
-# ── Text Polish (unchanged — no image processing) ─────────────────
+# ── Text Polish ──────────────────────────────────────────────────
+
+import re
+
+
+def _detect_language(text: str) -> str:
+    """Detect if text is primarily Chinese or English.
+    Returns 'zh' if >30% CJK characters, 'en' otherwise."""
+    cjk_count = len(re.findall(r'[一-鿿㐀-䶿]', text))
+    total_chars = len(text.replace(' ', '').replace('\n', ''))
+    if total_chars == 0:
+        return 'en'
+    return 'zh' if cjk_count / total_chars > 0.3 else 'en'
+
+
+def _split_text(text: str, max_chars: int = 3000) -> list[str]:
+    """Split long text at paragraph boundaries for segmented processing."""
+    if len(text) <= max_chars:
+        return [text]
+    paragraphs = text.split('\n')
+    chunks = []
+    current = ''
+    for para in paragraphs:
+        if len(current) + len(para) < max_chars:
+            current += para + '\n'
+        else:
+            if current.strip():
+                chunks.append(current.strip())
+            current = para + '\n'
+    if current.strip():
+        chunks.append(current.strip())
+    return chunks if chunks else [text]
+
 
 async def run_text_polish(text: str, mode: str = "polish") -> str:
-    """Polish, rewrite, shorten, or expand text using LLM."""
-    mode_instructions = {
-        "polish": "Improve the grammar, spelling, and clarity of the given text while keeping the same meaning. Return only the improved text, no explanations.",
-        "rewrite": "Rewrite the given text with different wording while keeping the same meaning. Return only the rewritten text, no explanations.",
-        "shorten": "Make the given text more concise while keeping the key points. Return only the shortened text, no explanations.",
-        "expand": "Expand the given text with more detail and explanation. Return only the expanded text, no explanations.",
-    }
-    instruction = mode_instructions.get(mode, mode_instructions["polish"])
+    """Polish, rewrite, shorten, expand, or restyle text using Llama 3.1 70B.
 
-    async def _call():
-        client = _get_client()
-        return await asyncio.to_thread(
-            client.run,
-            "meta/meta-llama-3.1-70b-instruct:baf226e1f0cc30952e39198a7dc1e8083d2686196464e0665e2d88108db29c61",
-            input={
-                "system_prompt": instruction,
-                "prompt": text,
-                "max_tokens": 4096,
-                "temperature": 0.7,
-            },
-        )
+    Modes: polish, rewrite, shorten, expand, academic, business
+    Auto-detects Chinese/English for language-specific optimization.
+    Supports long text via paragraph-boundary chunking.
+    """
+    lang = _detect_language(text)
 
-    output = await retry_with_backoff(_call)
-    return "".join(list(output)).strip()
+    # ── Mode instructions per language ──
+    if lang == 'zh':
+        anti_ai = "像母语写作者一样自然流畅。禁止使用'值得注意的是''此外''总而言之''首先其次最后'等AI套话。不要过度使用连接词，用自然的汉语表达。"
+        mode_prompts = {
+            "polish": f"纠正语法错误和错别字，优化句子流畅度，保持原意和语气不变。{anti_ai}仅输出润色后的文本，不要任何解释。",
+            "rewrite": f"用完全不同的措辞和句式重新表达相同含义，避免重复原文用词和结构。{anti_ai}仅输出改写后的文本，不要任何解释。",
+            "shorten": f"删除冗余表述，提炼核心信息，使文本更加精炼有力。保留所有关键事实和数据。{anti_ai}仅输出精简后的文本，不要任何解释。",
+            "expand": f"丰富细节，补充背景、举例或解释，使内容更加充实饱满。保持原文核心观点不变。{anti_ai}仅输出扩写后的文本，不要任何解释。",
+            "academic": f"转换为正式学术论文风格：逻辑严密、用词精准、句式规范、避免口语化。保留原文主旨和核心论证。{anti_ai}仅输出改写后的文本，不要任何解释。",
+            "business": f"转换为专业商务沟通风格：简洁有力、礼貌得体、重点突出、行动导向。适合邮件、报告、提案。{anti_ai}仅输出改写后的文本，不要任何解释。",
+        }
+    else:
+        anti_ai = "Sound like a native human writer, not an AI. Avoid formulaic phrasing like 'it is worth noting', 'furthermore', 'in conclusion', 'firstly secondly lastly'. Avoid overly polite filler and robotic transitions. Write naturally."
+        mode_prompts = {
+            "polish": f"Fix grammar, spelling, and improve sentence flow while keeping the original meaning and tone. {anti_ai} Return only the polished text, no explanations.",
+            "rewrite": f"Express the same meaning with completely different wording and sentence structure. Avoid repeating the original phrasing. {anti_ai} Return only the rewritten text, no explanations.",
+            "shorten": f"Remove redundancy and distill to the core message. Keep all key facts and data points. {anti_ai} Return only the shortened text, no explanations.",
+            "expand": f"Add detail, examples, and explanation to enrich the content. Keep the original core message intact. {anti_ai} Return only the expanded text, no explanations.",
+            "academic": f"Transform into formal academic writing: rigorous logic, precise vocabulary, proper structure, no colloquialisms. Preserve original arguments. {anti_ai} Return only the rewritten text, no explanations.",
+            "business": f"Transform into professional business communication: concise, courteous, action-oriented. Suitable for emails, reports, and proposals. {anti_ai} Return only the rewritten text, no explanations.",
+        }
+
+    instruction = mode_prompts.get(mode, mode_prompts["polish"])
+
+    # ── Long text: chunk at paragraph boundaries ──
+    chunks = _split_text(text)
+    if len(chunks) == 1:
+        chunks_to_process = [text]
+    else:
+        chunks_to_process = []
+        prev_context = ""
+        for i, chunk in enumerate(chunks):
+            if prev_context:
+                chunk = f"[Context from previous section]\n{prev_context}\n\n[Current section to process]\n{chunk}"
+            chunks_to_process.append(chunk)
+            # Keep last 200 chars as context for next chunk
+            prev_context = chunk[-200:]
+
+    # ── Process all chunks ──
+    results = []
+    for chunk in chunks_to_process:
+        async def _call():
+            client = _get_client()
+            return await asyncio.to_thread(
+                client.run,
+                "meta/meta-llama-3.1-70b-instruct:baf226e1f0cc30952e39198a7dc1e8083d2686196464e0665e2d88108db29c61",
+                input={
+                    "system_prompt": instruction,
+                    "prompt": chunk,
+                    "max_tokens": 8192,
+                    "temperature": 0.5,
+                },
+            )
+
+        output = await retry_with_backoff(_call)
+        results.append("".join(list(output)).strip())
+
+    return "\n\n".join(results).strip()
