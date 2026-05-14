@@ -280,13 +280,23 @@ async def run_style_transfer(
 # ── Text Polish ──────────────────────────────────────────────────
 
 def _detect_language(text: str) -> str:
-    """Detect if text is primarily Chinese or English.
-    Returns 'zh' if >30% CJK characters, 'en' otherwise."""
-    cjk_count = sum(1 for c in text if '一' <= c <= '鿿' or '㐀' <= c <= '䶿')
+    """Detect if text is Arabic, Spanish, or English.
+    Returns 'ar', 'es', or 'en'."""
     total_chars = len(text.replace(' ', '').replace('\n', ''))
     if total_chars == 0:
         return 'en'
-    return 'zh' if cjk_count / total_chars > 0.3 else 'en'
+
+    # Arabic: count characters in Arabic Unicode blocks
+    ar_count = sum(1 for c in text if '؀' <= c <= 'ۿ' or 'ݐ' <= c <= 'ݿ')
+    if ar_count / total_chars > 0.3:
+        return 'ar'
+
+    # Spanish: check for Spanish-specific characters
+    es_markers = set('ñÑáéíóúüÁÉÍÓÚÜ¿¡')
+    if any(c in es_markers for c in text):
+        return 'es'
+
+    return 'en'
 
 
 def _split_text(text: str, max_chars: int = 3000) -> list[str]:
@@ -309,24 +319,34 @@ def _split_text(text: str, max_chars: int = 3000) -> list[str]:
 
 
 async def run_text_polish(text: str, mode: str = "polish") -> str:
-    """Polish, rewrite, shorten, expand, or restyle text using Llama 3.1 70B.
+    """Polish, rewrite, shorten, expand, or restyle text using Llama 3 70B.
 
     Modes: polish, rewrite, shorten, expand, academic, business
-    Auto-detects Chinese/English for language-specific optimization.
+    Auto-detects English, Spanish, or Arabic for language-specific optimization.
     Supports long text via paragraph-boundary chunking.
     """
     lang = _detect_language(text)
 
     # ── Mode instructions per language ──
-    if lang == 'zh':
-        anti_ai = "像母语写作者一样自然流畅。禁止使用'值得注意的是''此外''总而言之''首先其次最后'等AI套话。不要过度使用连接词，用自然的汉语表达。"
+    if lang == 'ar':
+        anti_ai = "اكتب كمتحدث أصلي للعربية، وليس كذكاء اصطناعي. تجنب العبارات النمطية مثل 'من الجدير بالذكر' و'في الختام' و'أولاً ثانياً ثالثاً'. تجنب الحشو المفرط والانتقالات الآلية. اكتب بشكل طبيعي."
         mode_prompts = {
-            "polish": f"纠正语法错误和错别字，优化句子流畅度，保持原意和语气不变。{anti_ai}仅输出润色后的文本，不要任何解释。",
-            "rewrite": f"用完全不同的措辞和句式重新表达相同含义，避免重复原文用词和结构。{anti_ai}仅输出改写后的文本，不要任何解释。",
-            "shorten": f"删除冗余表述，提炼核心信息，使文本更加精炼有力。保留所有关键事实和数据。{anti_ai}仅输出精简后的文本，不要任何解释。",
-            "expand": f"丰富细节，补充背景、举例或解释，使内容更加充实饱满。保持原文核心观点不变。{anti_ai}仅输出扩写后的文本，不要任何解释。",
-            "academic": f"转换为正式学术论文风格：逻辑严密、用词精准、句式规范、避免口语化。保留原文主旨和核心论证。{anti_ai}仅输出改写后的文本，不要任何解释。",
-            "business": f"转换为专业商务沟通风格：简洁有力、礼貌得体、重点突出、行动导向。适合邮件、报告、提案。{anti_ai}仅输出改写后的文本，不要任何解释。",
+            "polish": f"صحح القواعد النحوية والإملائية وحسّن تدفق الجمل مع الحفاظ على المعنى والنبرة الأصلية. {anti_ai} أعد فقط النص المنقح، بدون أي تفسيرات.",
+            "rewrite": f"عبّر عن نفس المعنى بكلمات وتراكيب جمل مختلفة تماماً. تجنب تكرار الصياغة الأصلية. {anti_ai} أعد فقط النص المعاد كتابته، بدون أي تفسيرات.",
+            "shorten": f"احذف التكرار واختصر إلى الرسالة الأساسية. احتفظ بجميع الحقائق والبيانات الرئيسية. {anti_ai} أعد فقط النص المختصر، بدون أي تفسيرات.",
+            "expand": f"أضف التفاصيل والأمثلة والتوضيحات لإثراء المحتوى. حافظ على الرسالة الأساسية الأصلية. {anti_ai} أعد فقط النص الموسع، بدون أي تفسيرات.",
+            "academic": f"حوّل إلى أسلوب أكاديمي رسمي: منطق دقيق، مفردات متخصصة، تركيب مناسب، بدون تعابير عامية. حافظ على الحجج الأصلية. {anti_ai} أعد فقط النص المعاد كتابته، بدون أي تفسيرات.",
+            "business": f"حوّل إلى أسلوب تواصل مهني: موجز، مهذب، موجه نحو العمل. مناسب للرسائل والتقارير والعروض. {anti_ai} أعد فقط النص المعاد كتابته، بدون أي تفسيرات.",
+        }
+    elif lang == 'es':
+        anti_ai = "Escribe como un hablante nativo de español, no como una IA. Evita frases formulaicas como 'es digno de mención', 'en conclusión', 'en primer lugar, en segundo lugar'. Evita los rellenos excesivos y las transiciones robóticas. Escribe con naturalidad."
+        mode_prompts = {
+            "polish": f"Corrige la gramática, ortografía y mejora la fluidez de las oraciones manteniendo el significado y tono original. {anti_ai} Devuelve solo el texto mejorado, sin explicaciones.",
+            "rewrite": f"Expresa el mismo significado con palabras y estructuras de oraciones completamente diferentes. Evita repetir la redacción original. {anti_ai} Devuelve solo el texto reescrito, sin explicaciones.",
+            "shorten": f"Elimina la redundancia y destila el mensaje central. Conserva todos los hechos y datos clave. {anti_ai} Devuelve solo el texto acortado, sin explicaciones.",
+            "expand": f"Añade detalles, ejemplos y explicaciones para enriquecer el contenido. Mantén intacto el mensaje central original. {anti_ai} Devuelve solo el texto expandido, sin explicaciones.",
+            "academic": f"Transforma a un estilo académico formal: lógica rigurosa, vocabulario preciso, estructura adecuada, sin coloquialismos. Conserva los argumentos originales. {anti_ai} Devuelve solo el texto reescrito, sin explicaciones.",
+            "business": f"Transforma a comunicación profesional: conciso, cortés, orientado a la acción. Adecuado para correos, informes y propuestas. {anti_ai} Devuelve solo el texto reescrito, sin explicaciones.",
         }
     else:
         anti_ai = "Sound like a native human writer, not an AI. Avoid formulaic phrasing like 'it is worth noting', 'furthermore', 'in conclusion', 'firstly secondly lastly'. Avoid overly polite filler and robotic transitions. Write naturally."
