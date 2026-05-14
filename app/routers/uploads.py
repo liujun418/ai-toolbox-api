@@ -53,10 +53,13 @@ ALLOWED_IMAGE_CONTENT_TYPES = {"image/png", "image/jpeg", "image/webp"}
 
 # Friendly error messages for known failure patterns
 ERROR_MESSAGES = {
-    "timeout": "Processing timed out. Please try again with a smaller image.",
-    "rate_limit": "Service is busy. Please wait a moment and try again.",
-    "model_error": "AI processing failed. Please try a different image.",
-    "validation": "The uploaded file is not a valid image.",
+    "timeout": "Processing timed out — this image may be too large or complex. Try a smaller image (under 2000px).",
+    "rate_limit": "Too many requests right now. Please wait a moment and try again.",
+    "model_error": "The AI model couldn't process this image. It may be too small, too blurry, or in an unusual format. Try a clearer image.",
+    "validation": "This file doesn't appear to be a valid image. Please use PNG, JPG, or WebP.",
+    "image_too_small": "The image is too small to upscale meaningfully. Minimum recommended: 100×100 pixels.",
+    "gpu_oom": "The image is too large for the AI model. Try a smaller image (under 3000px on the longest side).",
+    "face_not_found": "No clear face detected in this image. Face Pro works best with visible, front-facing portraits.",
 }
 
 
@@ -67,10 +70,16 @@ def _friendly_error(message: str) -> str:
         return ERROR_MESSAGES["timeout"]
     if "rate limit" in msg_lower or "429" in msg_lower:
         return ERROR_MESSAGES["rate_limit"]
-    if "replicate" in msg_lower or "model" in msg_lower:
-        return ERROR_MESSAGES["model_error"]
+    if "memory" in msg_lower or "oom" in msg_lower or "cuda" in msg_lower:
+        return ERROR_MESSAGES["gpu_oom"]
+    if "face" in msg_lower and ("detect" in msg_lower or "not found" in msg_lower or "no face" in msg_lower):
+        return ERROR_MESSAGES["face_not_found"]
     if "corrupt" in msg_lower or "invalid" in msg_lower or "cannot identify" in msg_lower:
         return ERROR_MESSAGES["validation"]
+    if "too small" in msg_lower or "resolution" in msg_lower:
+        return ERROR_MESSAGES["image_too_small"]
+    if "replicate" in msg_lower or "model" in msg_lower or "prediction" in msg_lower:
+        return ERROR_MESSAGES["model_error"]
     # Default: truncate long messages
     return message if len(message) < 200 else message[:200] + "..."
 
