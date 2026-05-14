@@ -180,11 +180,15 @@ def postprocess_image(
     image_bytes: bytes,
     feather_radius: float = 0,
     bg_color: tuple[int, int, int] | None = None,
+    sharpen_percent: int = 180,
+    contrast_boost: float = 1.06,
 ) -> bytes:
     """Post-process AI output for consistent quality and format.
 
     - feather_radius > 0: applies Gaussian blur to alpha channel for smooth edges
     - bg_color: composites result onto solid color background (None = keep transparent)
+    - sharpen_percent: UnsharpMask percent (default 180, higher = more sharpening)
+    - contrast_boost: Contrast enhance factor (default 1.06, higher = more contrast)
     - Non-RGBA images: sharpening, contrast, saturation, WebP output
     """
     try:
@@ -203,9 +207,9 @@ def postprocess_image(
                 background.paste(img, mask=a)
                 img = background
                 # Apply sharpening to composite result
-                img = img.filter(ImageFilter.UnsharpMask(radius=1.5, percent=180, threshold=3))
+                img = img.filter(ImageFilter.UnsharpMask(radius=1.5, percent=sharpen_percent, threshold=3))
                 enhancer = ImageEnhance.Contrast(img)
-                img = enhancer.enhance(1.04)
+                img = enhancer.enhance(contrast_boost if contrast_boost > 1.04 else 1.04)
 
             buf = io.BytesIO()
             img.save(buf, format="PNG", optimize=True)
@@ -217,11 +221,11 @@ def postprocess_image(
             img = img.convert("RGB")
 
         # Sharpening
-        img = img.filter(ImageFilter.UnsharpMask(radius=1.5, percent=180, threshold=3))
+        img = img.filter(ImageFilter.UnsharpMask(radius=1.5, percent=sharpen_percent, threshold=3))
 
         # Contrast boost
         enhancer = ImageEnhance.Contrast(img)
-        img = enhancer.enhance(1.06)
+        img = enhancer.enhance(contrast_boost)
 
         # Subtle saturation boost
         sat_enhancer = ImageEnhance.Color(img)

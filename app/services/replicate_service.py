@@ -162,9 +162,9 @@ async def auto_detect_watermark(image_url: str) -> bytes | None:
 # ── Photo Restorer ────────────────────────────────────────────────
 
 TOPAZ_STRENGTH = {
-    "light":  {"grain": False, "grain_strength": 0},
-    "medium": {"grain": True, "grain_strength": 20},
-    "heavy":  {"grain": True, "grain_strength": 40},
+    "light":  {"grain": False},
+    "medium": {"grain": False},
+    "heavy":  {"grain": False},
 }
 
 
@@ -172,9 +172,9 @@ async def run_photo_restoration(image_url: str, strength: str = "medium") -> tup
     """Restore old/damaged photo.
 
     Strength levels:
-      - light:  Topaz D&S — clean scratch/dust removal, no grain
-      - medium: Topaz D&S — scratch removal + subtle film grain (default)
-      - heavy:  Topaz D&S — scratch removal + pronounced film grain
+      - light:  Topaz D&S — clean scratch removal + light postprocess
+      - medium: Topaz D&S — scratch removal + moderate sharpen/contrast (default)
+      - heavy:  Topaz D&S — scratch removal + aggressive sharpen/contrast
       - face:   GFPGAN — dedicated face enhancement, preserves age features
     """
     if strength == "face":
@@ -188,19 +188,17 @@ async def run_photo_restoration(image_url: str, strength: str = "medium") -> tup
     else:
         tpl = TOOL_PROMPTS["photo-restorer"]
         s = TOPAZ_STRENGTH.get(strength, TOPAZ_STRENGTH["medium"])
+        inp = {"image": image_url, "output_format": tpl.default_params["output_format"]}
+        if s["grain"]:
+            inp.update({
+                "grain": True,
+                "grain_model": tpl.default_params["grain_model"],
+                "grain_strength": tpl.default_params["grain_strength"],
+                "grain_density": tpl.default_params["grain_density"],
+                "grain_size": tpl.default_params["grain_size"],
+            })
         async def _call():
-            return await _run_model(
-                tpl.model,
-                input={
-                    "image": image_url,
-                    "grain": s["grain"],
-                    "grain_model": tpl.default_params["grain_model"],
-                    "grain_strength": s["grain_strength"],
-                    "grain_density": tpl.default_params["grain_density"],
-                    "grain_size": tpl.default_params["grain_size"],
-                    "output_format": tpl.default_params["output_format"],
-                },
-            )
+            return await _run_model(tpl.model, input=inp)
     output = await retry_with_backoff(_call)
     return str(output), None
 

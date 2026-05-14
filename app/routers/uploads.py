@@ -184,6 +184,7 @@ async def upload_and_process(
         image_url = generate_presigned_url(upload_key, expires_in=3600)
 
         replicate_id = None
+        postprocess_kwargs: dict = {}
 
         if tool_type == "background-remover":
             # Parse background color
@@ -275,6 +276,14 @@ async def upload_and_process(
             task.output_file_url = output
             task.status = TaskStatus.COMPLETED
             task.completed_at = datetime.now(UTC)
+
+            # Post-processing intensity by strength
+            _pp_map = {
+                "light":  {"sharpen_percent": 120, "contrast_boost": 1.03},
+                "medium": {"sharpen_percent": 180, "contrast_boost": 1.06},
+                "heavy":  {"sharpen_percent": 250, "contrast_boost": 1.10},
+            }
+            postprocess_kwargs = _pp_map.get(strength, _pp_map["medium"])
 
         elif tool_type == "avatar-generator":
             valid_styles = {"cartoon", "anime", "professional", "pixel-art", "watercolor", "oil-painting"}
@@ -376,6 +385,8 @@ async def upload_and_process(
                             feather_radius=1.5,
                             bg_color=bg_tuple,
                         )
+                    elif tool_type == "photo-restorer" and postprocess_kwargs:
+                        processed_bytes = postprocess_image(resp.content, **postprocess_kwargs)
                     else:
                         processed_bytes = postprocess_image(resp.content)
                     ext = "png" if task.output_file_url.lower().endswith(".png") else "webp"
