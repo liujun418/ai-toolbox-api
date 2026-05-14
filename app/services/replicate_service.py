@@ -161,28 +161,60 @@ async def auto_detect_watermark(image_url: str) -> bytes | None:
 
 # ── Photo Restorer ────────────────────────────────────────────────
 
-STRENGTH_PARAMS = {
-    "light": {"weight": 0.15, "scale": 1},
-    "medium": {"weight": 0.4, "scale": 2},
-    "heavy": {"weight": 0.7, "scale": 2},
-}
+async def run_old_photo_restoration(image_url: str, hr: bool = False, with_scratch: bool = True) -> tuple[str, str | None]:
+    """Comprehensive old photo restoration using Microsoft Bringing-Old-Photos-Back-to-Life.
 
-
-async def run_photo_restoration(image_url: str, strength: str = "medium") -> tuple[str, str | None]:
-    """Restore old/damaged photo using GFPGAN.
-
-    Strength levels:
-      - light:  weight=0.15, scale=1  (subtle cleanup, preserves original feel)
-      - medium: weight=0.4,  scale=2  (balanced restoration with face enhancement)
-      - heavy:  weight=0.7,  scale=2  (deep restoration for severely damaged photos)
+    Handles scratch removal, stain repair, damage restoration, denoising,
+    color correction, and built-in face enhancement.
     """
     tpl = TOOL_PROMPTS["photo-restorer"]
-    s = STRENGTH_PARAMS.get(strength, STRENGTH_PARAMS["medium"])
     async def _call():
         return await _run_model(
             tpl.model,
-            input={"img": image_url, "version": tpl.default_params["version"], **s},
+            input={"image": image_url, "HR": hr, "with_scratch": with_scratch},
         )
+    output = await retry_with_backoff(_call)
+    return str(output), None
+
+
+async def run_photo_restoration(image_url: str, strength: str = "medium") -> tuple[str, str | None]:
+    """Restore old/damaged photo.
+
+    Strength levels:
+      - light:  Microsoft BOP — basic cleanup, no scratch removal
+      - medium: Microsoft BOP — standard restoration + scratch removal (default)
+      - heavy:  Microsoft BOP — HR high-res mode + scratch removal
+      - face:   GFPGAN — dedicated face enhancement, preserves age features
+    """
+    if strength == "face":
+        tpl = TOOL_PROMPTS["photo-restorer-face"]
+        async def _call():
+            return await _run_model(
+                tpl.model,
+                input={"img": image_url, "version": tpl.default_params["version"],
+                       "scale": tpl.default_params["scale"], "weight": tpl.default_params["weight"]},
+            )
+    elif strength == "heavy":
+        tpl = TOOL_PROMPTS["photo-restorer"]
+        async def _call():
+            return await _run_model(
+                tpl.model,
+                input={"image": image_url, "HR": True, "with_scratch": True},
+            )
+    elif strength == "light":
+        tpl = TOOL_PROMPTS["photo-restorer"]
+        async def _call():
+            return await _run_model(
+                tpl.model,
+                input={"image": image_url, "HR": False, "with_scratch": False},
+            )
+    else:  # medium (default)
+        tpl = TOOL_PROMPTS["photo-restorer"]
+        async def _call():
+            return await _run_model(
+                tpl.model,
+                input={"image": image_url, "HR": False, "with_scratch": True},
+            )
     output = await retry_with_backoff(_call)
     return str(output), None
 

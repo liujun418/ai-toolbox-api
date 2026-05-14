@@ -52,13 +52,23 @@ TOOL_PROMPTS: dict[str, PromptTemplate] = {
     ),
 
     "photo-restorer": PromptTemplate(
+        model="microsoft/bringing-old-photos-back-to-life:c75db81db6cbd809d93cc3b7e7a088a351a3349c9fa02b6d393e35e0d51ba799",
+        positive_prompt="",
+        negative_prompt="",
+        default_params={
+            "HR": False,
+            "with_scratch": True,
+        },
+    ),
+
+    "photo-restorer-face": PromptTemplate(
         model="tencentarc/gfpgan:0fbacf7afc6c144e5be9767cff80f25aff23e52b0708f17e20f9879b2f21516c",
         positive_prompt="",
         negative_prompt="",
         default_params={
             "version": "v1.4",
             "scale": 2,
-            "weight": 0.4,
+            "weight": 0.6,
         },
     ),
 

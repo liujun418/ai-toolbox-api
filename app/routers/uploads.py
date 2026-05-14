@@ -269,7 +269,7 @@ async def upload_and_process(
 
         elif tool_type == "photo-restorer":
             strength = "medium"
-            if prompt and prompt.strip().lower() in ("light", "medium", "heavy"):
+            if prompt and prompt.strip().lower() in ("light", "medium", "heavy", "face"):
                 strength = prompt.strip().lower()
             output, replicate_id = await run_photo_restoration(image_url, strength)
             task.output_file_url = output
