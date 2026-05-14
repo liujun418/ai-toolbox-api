@@ -52,12 +52,16 @@ TOOL_PROMPTS: dict[str, PromptTemplate] = {
     ),
 
     "photo-restorer": PromptTemplate(
-        model="microsoft/bringing-old-photos-back-to-life:c75db81db6cbd809d93cc3b7e7a088a351a3349c9fa02b6d393e35e0d51ba799",
+        model="topazlabs/dust-and-scratch-v2:f9848c7feb1604b71c4d09a70ccfde538c86e3c82dbdacecb93cdc2513163c44",
         positive_prompt="",
         negative_prompt="",
         default_params={
-            "HR": False,
-            "with_scratch": True,
+            "grain": True,
+            "grain_model": "silver rich",
+            "grain_strength": 20,
+            "grain_density": 30,
+            "grain_size": 1,
+            "output_format": "png",
         },
     ),
 

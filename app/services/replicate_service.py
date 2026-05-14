@@ -161,29 +161,20 @@ async def auto_detect_watermark(image_url: str) -> bytes | None:
 
 # ── Photo Restorer ────────────────────────────────────────────────
 
-async def run_old_photo_restoration(image_url: str, hr: bool = False, with_scratch: bool = True) -> tuple[str, str | None]:
-    """Comprehensive old photo restoration using Microsoft Bringing-Old-Photos-Back-to-Life.
-
-    Handles scratch removal, stain repair, damage restoration, denoising,
-    color correction, and built-in face enhancement.
-    """
-    tpl = TOOL_PROMPTS["photo-restorer"]
-    async def _call():
-        return await _run_model(
-            tpl.model,
-            input={"image": image_url, "HR": hr, "with_scratch": with_scratch},
-        )
-    output = await retry_with_backoff(_call)
-    return str(output), None
+TOPAZ_STRENGTH = {
+    "light":  {"grain": False, "grain_strength": 0},
+    "medium": {"grain": True, "grain_strength": 20},
+    "heavy":  {"grain": True, "grain_strength": 40},
+}
 
 
 async def run_photo_restoration(image_url: str, strength: str = "medium") -> tuple[str, str | None]:
     """Restore old/damaged photo.
 
     Strength levels:
-      - light:  Microsoft BOP — basic cleanup, no scratch removal
-      - medium: Microsoft BOP — standard restoration + scratch removal (default)
-      - heavy:  Microsoft BOP — HR high-res mode + scratch removal
+      - light:  Topaz D&S — clean scratch/dust removal, no grain
+      - medium: Topaz D&S — scratch removal + subtle film grain (default)
+      - heavy:  Topaz D&S — scratch removal + pronounced film grain
       - face:   GFPGAN — dedicated face enhancement, preserves age features
     """
     if strength == "face":
@@ -194,26 +185,21 @@ async def run_photo_restoration(image_url: str, strength: str = "medium") -> tup
                 input={"img": image_url, "version": tpl.default_params["version"],
                        "scale": tpl.default_params["scale"], "weight": tpl.default_params["weight"]},
             )
-    elif strength == "heavy":
+    else:
         tpl = TOOL_PROMPTS["photo-restorer"]
+        s = TOPAZ_STRENGTH.get(strength, TOPAZ_STRENGTH["medium"])
         async def _call():
             return await _run_model(
                 tpl.model,
-                input={"image": image_url, "HR": True, "with_scratch": True},
-            )
-    elif strength == "light":
-        tpl = TOOL_PROMPTS["photo-restorer"]
-        async def _call():
-            return await _run_model(
-                tpl.model,
-                input={"image": image_url, "HR": False, "with_scratch": False},
-            )
-    else:  # medium (default)
-        tpl = TOOL_PROMPTS["photo-restorer"]
-        async def _call():
-            return await _run_model(
-                tpl.model,
-                input={"image": image_url, "HR": False, "with_scratch": True},
+                input={
+                    "image": image_url,
+                    "grain": s["grain"],
+                    "grain_model": tpl.default_params["grain_model"],
+                    "grain_strength": s["grain_strength"],
+                    "grain_density": tpl.default_params["grain_density"],
+                    "grain_size": tpl.default_params["grain_size"],
+                    "output_format": tpl.default_params["output_format"],
+                },
             )
     output = await retry_with_backoff(_call)
     return str(output), None
