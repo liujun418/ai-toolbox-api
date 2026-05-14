@@ -22,9 +22,10 @@ class PromptTemplate:
 
 # ── Negative prompts ──────────────────────────────────────────────
 NEGATIVE_SDXL = (
-    "deformed, ugly, blurry, low quality, lowres, watermark, text, signature, "
-    "bad anatomy, extra limbs, disfigured, poorly drawn face, mutation, "
-    "duplicate, cropped, worst quality"
+    "deformed limbs, distorted facial features, deformed body, twisted face, "
+    "blurry, low quality, low resolution, worst quality, ugly, watermark, text, "
+    "signature, bad anatomy, extra limbs, disfigured, poorly drawn face, mutation, "
+    "duplicate, cropped, out of frame, cut off, asymmetric, unnatural proportions"
 )
 NEGATIVE_GFPGAN = "blurry, noisy, artifacted, oversharpened, oversaturated"
 NEGATIVE_REMBG = (
@@ -99,10 +100,10 @@ TOOL_PROMPTS: dict[str, PromptTemplate] = {
 
     "style-transfer": PromptTemplate(
         model="stability-ai/sdxl:7762fd07cf82c948538e41f63f77d685e02b063e37e496e96eefd46c929f9bdc",
-        positive_prompt="",  # Filled per-style below
-        negative_prompt=NEGATIVE_SDXL,
+        positive_prompt="",  # Filled per-style from STYLE_PROMPTS
+        negative_prompt=NEGATIVE_SDXL,  # Overridden per-style from STYLE_NEGATIVE_PROMPTS
         default_params={
-            "prompt_strength": 0.6,
+            "prompt_strength": 0.55,
             "num_outputs": 1,
             "num_inference_steps": 30,
             "guidance_scale": 7.5,
@@ -113,24 +114,121 @@ TOOL_PROMPTS: dict[str, PromptTemplate] = {
 # ── Style-specific prompts for style-transfer ─────────────────────
 STYLE_PROMPTS: dict[str, str] = {
     "oil-painting": (
-        "oil painting style, thick impasto brush strokes, rich warm colors, "
-        "classical impressionist composition, textured canvas, masterful artwork, "
+        "masterful oil painting, thick impasto brush strokes with visible canvas texture, "
+        "rich warm earthy color palette, classical composition with dramatic lighting, "
+        "museum quality fine art, Rembrandt-inspired chiaroscuro, painterly aesthetic, "
         "high quality, {user_prompt}"
     ),
     "watercolor": (
-        "watercolor painting style, soft translucent washes, delicate edges, "
-        "flowing colors, fine art illustration, elegant artistic finish, "
+        "beautiful watercolor painting, soft translucent washes, delicate wet-on-wet "
+        "blending, flowing colors with subtle granulation, fine art illustration on "
+        "textured cold-press paper, elegant artistic finish with controlled blooms, "
         "high quality, {user_prompt}"
     ),
     "anime": (
-        "anime art style, cel shading, crisp clean linework, vibrant saturated "
-        "colors, manga illustration, professional anime key art, high quality, "
-        "{user_prompt}"
+        "professional anime art style, cel shading with crisp clean linework, vibrant "
+        "saturated colors, studio-quality key visual illustration, Japanese animation "
+        "aesthetic, detailed hair with highlights, expressive composition, "
+        "high quality, {user_prompt}"
     ),
     "sketch": (
-        "detailed pencil sketch style, graphite drawing, fine cross-hatching, "
-        "black and white line art, professional illustration, clean edges, "
+        "detailed pencil sketch, graphite drawing with fine cross-hatching and smooth "
+        "shading, black and white line art, professional illustration with clean precise "
+        "lines, academic drawing style, high contrast monochrome, "
         "high quality, {user_prompt}"
+    ),
+    "chinese-painting": (
+        "traditional Chinese ink wash painting combined with modern guochao illustration, "
+        "flowing ink brushwork, delicate line art, soft watercolor washes, elegant "
+        "composition, Chinese cultural aesthetic, vibrant yet harmonious colors, "
+        "illustration style blending classical and contemporary, "
+        "high quality, {user_prompt}"
+    ),
+    "cartoon": (
+        "Pixar-style 3D cartoon character, smooth polished skin, expressive face, "
+        "vibrant playful colors, soft cinematic lighting, cute charming proportions, "
+        "professional digital art render, volumetric lighting, subsurface scattering, "
+        "high quality, {user_prompt}"
+    ),
+}
+
+# ── Style Transfer: per-style locked generation parameters ────────
+STYLE_PARAMS: dict[str, dict] = {
+    "oil-painting": {
+        "prompt_strength": 0.55,
+        "num_inference_steps": 35,
+        "guidance_scale": 7.5,
+    },
+    "watercolor": {
+        "prompt_strength": 0.50,
+        "num_inference_steps": 30,
+        "guidance_scale": 7.5,
+    },
+    "anime": {
+        "prompt_strength": 0.60,
+        "num_inference_steps": 30,
+        "guidance_scale": 8.0,
+    },
+    "sketch": {
+        "prompt_strength": 0.45,
+        "num_inference_steps": 25,
+        "guidance_scale": 7.0,
+    },
+    "chinese-painting": {
+        "prompt_strength": 0.55,
+        "num_inference_steps": 35,
+        "guidance_scale": 7.5,
+    },
+    "cartoon": {
+        "prompt_strength": 0.60,
+        "num_inference_steps": 35,
+        "guidance_scale": 8.0,
+    },
+}
+
+# ── Style Transfer: per-style negative prompts ────────────────────
+STYLE_NEGATIVE_PROMPTS: dict[str, str] = {
+    "oil-painting": (
+        "deformed limbs, distorted facial features, deformed body, twisted face, "
+        "blurry, low quality, low resolution, worst quality, ugly, watermark, text, "
+        "signature, bad anatomy, extra limbs, disfigured, poorly drawn face, mutation, "
+        "photorealistic, 3D render, digital art, flat colors, cartoon, anime, "
+        "abstract expressionism, messy chaotic brushwork"
+    ),
+    "watercolor": (
+        "deformed limbs, distorted facial features, deformed body, twisted face, "
+        "blurry, low quality, low resolution, worst quality, ugly, watermark, text, "
+        "signature, bad anatomy, extra limbs, disfigured, poorly drawn face, mutation, "
+        "thick paint, oil painting texture, bold heavy outlines, cartoon, digital art, "
+        "photorealistic, 3D render, muddy colors, overworked painting"
+    ),
+    "anime": (
+        "deformed limbs, distorted facial features, deformed body, twisted face, "
+        "blurry, low quality, low resolution, worst quality, ugly, watermark, text, "
+        "signature, bad anatomy, extra limbs, disfigured, poorly drawn face, mutation, "
+        "realistic photo, 3D render, western cartoon style, messy sketchy lineart, "
+        "inconsistent art style, dull desaturated colors, photographic details"
+    ),
+    "sketch": (
+        "deformed limbs, distorted facial features, deformed body, twisted face, "
+        "blurry, low quality, low resolution, worst quality, ugly, watermark, text, "
+        "signature, bad anatomy, extra limbs, disfigured, poorly drawn face, mutation, "
+        "color, painting, digital art, photorealistic, 3D render, rendered shading, "
+        "smooth gradients, messy scribble, dirty smudged lines"
+    ),
+    "chinese-painting": (
+        "deformed limbs, distorted facial features, deformed body, twisted face, "
+        "blurry, low quality, low resolution, worst quality, ugly, watermark, text, "
+        "signature, bad anatomy, extra limbs, disfigured, poorly drawn face, mutation, "
+        "photorealistic, 3D render, oil painting texture, western painting style, "
+        "cartoon, anime, thick heavy outlines, messy splatter, unbalanced composition"
+    ),
+    "cartoon": (
+        "deformed limbs, distorted facial features, deformed body, twisted face, "
+        "blurry, low quality, low resolution, worst quality, ugly, watermark, text, "
+        "signature, bad anatomy, extra limbs, disfigured, poorly drawn face, mutation, "
+        "realistic photo, anime style, 2D flat illustration, creepy uncanny valley, "
+        "plastic toy look, poor lighting, dull flat shading, gritty texture"
     ),
 }
 

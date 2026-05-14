@@ -13,6 +13,8 @@ from app.config import settings
 from app.services.prompt_templates import (
     TOOL_PROMPTS,
     STYLE_PROMPTS,
+    STYLE_PARAMS,
+    STYLE_NEGATIVE_PROMPTS,
     AVATAR_PROMPTS,
     AVATAR_NEGATIVE_PROMPTS,
     AVATAR_PARAMS,
@@ -246,20 +248,28 @@ async def run_style_transfer(
     style: str = "oil-painting",
     user_prompt: str = "",
 ) -> tuple[str, str | None]:
-    """Transform image into artistic style. Returns (output_url, replicate_id)."""
+    """Transform image into artistic style using SDXL img2img.
+
+    Uses per-style locked prompts, generation parameters, and negative prompts
+    to ensure consistent, high-quality style transfer output.
+    Returns (output_url, replicate_id).
+    """
     tpl = TOOL_PROMPTS["style-transfer"]
     style_text = STYLE_PROMPTS.get(style, STYLE_PROMPTS["oil-painting"])
-    full_prompt = style_text.format(
-        user_prompt=user_prompt
-    ).strip()
+    full_prompt = style_text.format(user_prompt=user_prompt).strip()
+
+    # Per-style locked generation parameters
+    params = STYLE_PARAMS.get(style, STYLE_PARAMS["oil-painting"])
+
+    # Per-style negative prompt (fall back to template default)
+    negative = STYLE_NEGATIVE_PROMPTS.get(style, tpl.negative_prompt)
 
     inp = {
         "prompt": full_prompt,
         "image": image_url,
-        **tpl.default_params,
+        **params,
+        "negative_prompt": negative,
     }
-    if tpl.negative_prompt:
-        inp["negative_prompt"] = tpl.negative_prompt
 
     async def _call():
         return await _run_model(tpl.model, input=inp)

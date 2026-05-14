@@ -16,7 +16,7 @@ from app.database import get_db
 from app.models import Task, TaskStatus, Transaction, User
 from app.routers.auth import get_current_user
 from app.schemas import TaskResponse, CREDIT_COSTS
-from app.services.image_processing import preprocess_image, preprocess_avatar, postprocess_image
+from app.services.image_processing import preprocess_image, preprocess_avatar, preprocess_style_transfer, postprocess_image
 from app.services.storage import (
     generate_upload_key,
     generate_download_key,
@@ -170,6 +170,8 @@ async def upload_and_process(
             try:
                 if tool_type == "avatar-generator":
                     file_bytes, img_meta = preprocess_avatar(file_bytes)
+                elif tool_type == "style-transfer":
+                    file_bytes, img_meta = preprocess_style_transfer(file_bytes)
                 else:
                     file_bytes, img_meta = preprocess_image(file_bytes, keep_alpha=keep_alpha)
                 logger.info(
@@ -318,13 +320,13 @@ async def upload_and_process(
         elif tool_type == "style-transfer":
             style = "oil-painting"
             if prompt:
-                for s in ["oil-painting", "watercolor", "anime", "sketch"]:
+                for s in ["oil-painting", "watercolor", "anime", "sketch", "chinese-painting", "cartoon"]:
                     if s in prompt.lower():
                         style = s
                         break
             user_desc = ""
             if prompt:
-                style_kw = [s for s in ["oil-painting", "watercolor", "anime", "sketch"] if s in prompt.lower()]
+                style_kw = [s for s in ["oil-painting", "watercolor", "anime", "sketch", "chinese-painting", "cartoon"] if s in prompt.lower()]
                 if style_kw:
                     user_desc = prompt.lower().replace(style_kw[0], "").strip()
             output, replicate_id = await run_style_transfer(image_url, style, user_desc)

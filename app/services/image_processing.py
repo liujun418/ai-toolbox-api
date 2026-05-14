@@ -131,6 +131,61 @@ def preprocess_avatar(image_bytes: bytes) -> tuple[bytes, dict]:
     return result, metadata
 
 
+def preprocess_style_transfer(image_bytes: bytes) -> tuple[bytes, dict]:
+    """Preprocess an uploaded photo for style transfer.
+
+    - Center square crop (shortest edge) for consistent composition
+    - Resize to 1024x1024 (SDXL optimal resolution for img2img)
+    - Convert to RGB, white background for alpha images
+    - Output as high-quality JPEG
+
+    Returns (processed_bytes, metadata_dict).
+    """
+    img = Image.open(io.BytesIO(image_bytes))
+    orig_w, orig_h = img.size
+
+    metadata = {
+        "original_width": orig_w,
+        "original_height": orig_h,
+        "original_format": str(img.format) if img.format else "unknown",
+    }
+
+    # Center square crop: use shortest edge
+    crop_size = min(orig_w, orig_h)
+    left = (orig_w - crop_size) // 2
+    top = (orig_h - crop_size) // 2
+    right = left + crop_size
+    bottom = top + crop_size
+    img = img.crop((left, top, right, bottom))
+    metadata["cropped"] = True
+    metadata["crop_size"] = crop_size
+
+    # Resize to SDXL optimal resolution
+    img = img.resize((1024, 1024), Image.LANCZOS)
+    metadata["resized"] = True
+    metadata["new_width"] = 1024
+    metadata["new_height"] = 1024
+
+    # Color mode: remove alpha, composite on white
+    if img.mode in ("RGBA", "LA", "PA"):
+        background = Image.new("RGB", img.size, (255, 255, 255))
+        if img.mode == "RGBA":
+            background.paste(img, mask=img.split()[3])
+        else:
+            background.paste(img)
+        img = background
+    elif img.mode != "RGB":
+        img = img.convert("RGB")
+
+    # Output as JPEG with good quality
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=92, optimize=True)
+    buf.seek(0)
+    result = buf.read()
+    metadata["processed_size"] = len(result)
+    return result, metadata
+
+
 def feather_alpha(image_bytes: bytes, radius: float = 1.5) -> bytes:
     """Smooth the alpha channel to eliminate hard edges and halos.
 
