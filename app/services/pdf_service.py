@@ -3,15 +3,20 @@
 Smart paragraph grouping: consecutive lines with similar font size,
 Y-proximity, and indentation are merged into one paragraph.
 Heading detection: text with font size >= 1.3x body size becomes a heading.
+
+For scanned/image-based PDFs: Markdown (from OCR + LLM) → .docx.
 """
 
 import io
+import re
 from collections import Counter
 
 import fitz  # PyMuPDF
 from docx import Document
 from docx.shared import Pt, Inches, RGBColor
 from docx.oxml.ns import qn
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.oxml import OxmlElement
 
 
 async def get_pdf_page_count(pdf_file_bytes: bytes) -> int:
@@ -21,6 +26,25 @@ async def get_pdf_page_count(pdf_file_bytes: bytes) -> int:
     count = len(doc)
     doc.close()
     return count
+
+
+def is_scanned_pdf(file_bytes: bytes) -> bool:
+    """Check if any page in the PDF lacks a text layer (scanned/image-based).
+
+    Returns True if ANY page has insufficient extractable text (< 20 chars),
+    indicating a scanned/image-based PDF that needs OCR.
+    """
+    pdf_stream = io.BytesIO(file_bytes)
+    doc = fitz.open(stream=pdf_stream, filetype="pdf")
+    for page_num in range(len(doc)):
+        page = doc[page_num]
+        text = page.get_text().strip()
+        # If any page has very little text, treat as scanned
+        if len(text) < 20:
+            doc.close()
+            return True
+    doc.close()
+    return False
 
 
 def _estimate_body_font_size(all_lines: list) -> float:
@@ -221,3 +245,164 @@ async def convert_pdf_to_word(pdf_file_bytes: bytes, filename: str) -> bytes:
     docx.save(buf)
     buf.seek(0)
     return buf.read()
+
+
+def markdown_to_docx(markdown_text: str) -> bytes:
+    """Convert structured markdown (from LLM) to .docx bytes.
+
+    Handles: headings (# ## ###), tables (|...|), bullet lists (- *),
+    numbered lists (1. 2.), block quotes (>), and regular paragraphs.
+    Inline formatting: **bold** and *italic* supported.
+    """
+    doc = Document()
+
+    # Default style
+    style = doc.styles["Normal"]
+    style.font.name = "Arial"
+    style.font.size = Pt(11)
+
+    lines = markdown_text.split("\n")
+    i = 0
+    in_table = False
+    table_rows = []
+
+    while i < len(lines):
+        line = lines[i].rstrip()
+
+        # Empty line: flush pending table, then skip
+        if not line:
+            if in_table and table_rows:
+                _build_table(doc, table_rows)
+                table_rows = []
+                in_table = False
+            i += 1
+            continue
+
+        # Table row detection
+        if line.startswith("|") and line.endswith("|"):
+            # Skip separator rows like |---|---|
+            if re.match(r"^\|[\s\-:|]+\|$", line):
+                in_table = True
+                i += 1
+                continue
+            cells = [c.strip() for c in line.split("|")[1:-1]]
+            table_rows.append(cells)
+            in_table = True
+            i += 1
+            continue
+        else:
+            # Flush pending table
+            if in_table and table_rows:
+                _build_table(doc, table_rows)
+                table_rows = []
+                in_table = False
+
+        # Heading: ###, ##, #
+        heading_match = re.match(r"^(#{1,3})\s+(.+)$", line)
+        if heading_match:
+            level = len(heading_match.group(1))
+            text = heading_match.group(2)
+            p = doc.add_paragraph()
+            p.style = doc.styles[f"Heading {level}"]
+            _add_inline_runs(p, text)
+            i += 1
+            continue
+
+        # Bullet list: "- " or "* "
+        if re.match(r"^[\-\*]\s+", line):
+            text = re.sub(r"^[\-\*]\s+", "", line)
+            p = doc.add_paragraph(style="List Bullet")
+            _add_inline_runs(p, text)
+            i += 1
+            continue
+
+        # Numbered list: "1. " etc.
+        num_match = re.match(r"^(\d+)\.\s+(.+)$", line)
+        if num_match:
+            p = doc.add_paragraph(style="List Number")
+            _add_inline_runs(p, num_match.group(2))
+            i += 1
+            continue
+
+        # Block quote: "> "
+        if line.startswith("> "):
+            text = line[2:]
+            p = doc.add_paragraph()
+            _add_inline_runs(p, text)
+            p.paragraph_format.left_indent = Inches(0.5)
+            _set_paragraph_spacing(p, space_before=0, space_after=6)
+            i += 1
+            continue
+
+        # Regular paragraph
+        _add_inline_runs(doc.add_paragraph(), line)
+        i += 1
+
+    # Flush remaining table
+    if in_table and table_rows:
+        _build_table(doc, table_rows)
+
+    buf = io.BytesIO()
+    doc.save(buf)
+    buf.seek(0)
+    return buf.read()
+
+
+def _add_inline_runs(paragraph, text: str):
+    """Add text with **bold** and *italic* markdown parsing to a paragraph."""
+    pattern = re.compile(r"(\*\*(.+?)\*\*|\*(.+?)\*)")
+    last_end = 0
+    for match in pattern.finditer(text):
+        if match.start() > last_end:
+            paragraph.add_run(text[last_end:match.start()])
+        if match.group(2):  # **bold**
+            run = paragraph.add_run(match.group(2))
+            run.bold = True
+        elif match.group(3):  # *italic*
+            run = paragraph.add_run(match.group(3))
+            run.italic = True
+        last_end = match.end()
+    if last_end < len(text):
+        paragraph.add_run(text[last_end:])
+    _set_paragraph_spacing(paragraph, space_before=0, space_after=6)
+
+
+def _build_table(doc, rows):
+    """Build a docx table from a list of cell lists."""
+    if not rows:
+        return
+    num_cols = max(len(r) for r in rows)
+    table = doc.add_table(rows=len(rows), cols=num_cols, style="Table Grid")
+    for r_idx, row in enumerate(rows):
+        for c_idx, cell_text in enumerate(row):
+            if c_idx < num_cols:
+                cell = table.cell(r_idx, c_idx)
+                cell.text = ""
+                p = cell.paragraphs[0]
+                _add_inline_runs(p, cell_text)
+                # Bold first row as header
+                if r_idx == 0:
+                    for run in p.runs:
+                        run.bold = True
+    doc.add_paragraph()  # spacing after table
+
+
+async def convert_scanned_pdf_to_word(
+    pdf_file_bytes: bytes,
+    filename: str,
+    ocr_markdown: str,
+    restructured_markdown: str,
+) -> bytes:
+    """Convert scanned PDF to Word using OCR + LLM restructured markdown.
+
+    Args:
+        pdf_file_bytes: Original PDF bytes (for page count info)
+        filename: Original filename
+        ocr_markdown: Raw markdown from OCR model (datalab-to/marker)
+        restructured_markdown: Cleaned markdown from Llama 3.1 405B
+
+    Returns .docx bytes built from the restructured markdown.
+    """
+    # Use the restructured markdown if non-empty, otherwise fallback to raw OCR
+    source = restructured_markdown if restructured_markdown.strip() else ocr_markdown
+    return markdown_to_docx(source)

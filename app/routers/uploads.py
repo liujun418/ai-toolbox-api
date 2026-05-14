@@ -23,11 +23,13 @@ from app.services.storage import (
     upload_file,
     generate_presigned_url,
 )
-from app.services.pdf_service import convert_pdf_to_word, get_pdf_page_count
+from app.services.pdf_service import convert_pdf_to_word, get_pdf_page_count, is_scanned_pdf, convert_scanned_pdf_to_word
 from app.services.replicate_service import (
     run_avatar_generation,
     run_background_remover,
     run_image_upscaler,
+    run_pdf_ocr,
+    run_pdf_restructure,
     run_photo_restoration,
     run_style_transfer,
     run_text_polish,
@@ -351,12 +353,23 @@ async def upload_and_process(
 
         elif tool_type == "pdf-to-word":
             page_count = await get_pdf_page_count(file_bytes)
-            if page_count <= 5:
-                actual_cost = 1
-            elif page_count <= 20:
-                actual_cost = 2
+            scanned = is_scanned_pdf(file_bytes)
+
+            # Credit cost tiers — text vs scanned
+            if scanned:
+                if page_count <= 5:
+                    actual_cost = 3
+                elif page_count <= 20:
+                    actual_cost = 5
+                else:
+                    actual_cost = 7
             else:
-                actual_cost = 3
+                if page_count <= 5:
+                    actual_cost = 1
+                elif page_count <= 20:
+                    actual_cost = 2
+                else:
+                    actual_cost = 3
 
             if user.credits < actual_cost:
                 raise HTTPException(
@@ -368,10 +381,34 @@ async def upload_and_process(
             task.credits_cost = actual_cost
             credits_needed = actual_cost
 
-            try:
-                docx_bytes = await convert_pdf_to_word(file_bytes, file.filename or "document.pdf")
-            except ValueError as e:
-                raise HTTPException(status_code=400, detail=str(e))
+            if scanned:
+                # OCR path: upload PDF to R2 → OCR model → Llama 3.1 405B restructure → .docx
+                pdf_key = generate_upload_key(file.filename or "document.pdf", user.id)
+                await upload_file(file_bytes, pdf_key, "application/pdf")
+                pdf_url = generate_presigned_url(pdf_key, expires_in=3600)
+
+                try:
+                    ocr_markdown = await run_pdf_ocr(pdf_url)
+                    logger.info("OCR completed for task %s: %d chars", task_id, len(ocr_markdown))
+
+                    restructured = await run_pdf_restructure(ocr_markdown)
+                    logger.info("Restructure completed for task %s: %d chars", task_id, len(restructured))
+                except Exception as e:
+                    raise HTTPException(
+                        status_code=502,
+                        detail=f"OCR processing failed: {_friendly_error(str(e), 'pdf-to-word')}",
+                    )
+
+                docx_bytes = await convert_scanned_pdf_to_word(
+                    file_bytes, file.filename or "document.pdf",
+                    ocr_markdown, restructured,
+                )
+            else:
+                # Text PDF path: PyMuPDF extraction (fast, no API calls)
+                try:
+                    docx_bytes = await convert_pdf_to_word(file_bytes, file.filename or "document.pdf")
+                except ValueError as e:
+                    raise HTTPException(status_code=400, detail=str(e))
 
             output_key = generate_download_key(user.id, task_id, "docx")
             await upload_file(
