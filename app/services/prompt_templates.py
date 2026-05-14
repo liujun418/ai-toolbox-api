@@ -91,12 +91,10 @@ TOOL_PROMPTS: dict[str, PromptTemplate] = {
     ),
 
     "image-upscaler": PromptTemplate(
-        model="xinntao/realesrgan:457f5435101937411c960ddc8e2c612e2b0eba59f435ef77d5f27e12dba55902",
+        model="nightmareai/real-esrgan:b0bb4c529bb749ac98145e70f42f88d36598e89310beeeba4ee00e14238d1b4d",
         positive_prompt="",
         negative_prompt="",
-        default_params={
-            "tile": 0,
-        },
+        default_params={},
     ),
 
     "style-transfer": PromptTemplate(

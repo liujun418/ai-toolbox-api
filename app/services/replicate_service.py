@@ -225,26 +225,15 @@ async def run_image_upscaler(image_url: str, scale: int = 2, image_type: str = "
     """Upscale image with Real-ESRGAN.
 
     image_type:
-      - photo: General - v3 model + face_enhance (best for portraits/photos)
-      - anime: Anime - anime6B model, no face_enhance (best for illustrations/anime)
+      - photo: face_enhance enabled (best for portraits/photos)
+      - anime: face_enhance disabled (preserves line art and flat colors)
     """
     tpl = TOOL_PROMPTS["image-upscaler"]
-    if image_type == "anime":
-        version = "Anime - anime6B"
-        face_enhance = False
-    else:
-        version = "General - v3"
-        face_enhance = True
+    face_enhance = image_type != "anime"
     async def _call():
         return await _run_model(
             tpl.model,
-            input={
-                "image": image_url,
-                "scale": scale,
-                "version": version,
-                "face_enhance": face_enhance,
-                "tile": tpl.default_params["tile"],
-            },
+            input={"image": image_url, "scale": scale, "face_enhance": face_enhance},
         )
     output = await retry_with_backoff(_call)
     return str(output), None
