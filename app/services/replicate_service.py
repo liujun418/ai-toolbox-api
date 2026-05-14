@@ -161,13 +161,27 @@ async def auto_detect_watermark(image_url: str) -> bytes | None:
 
 # ── Photo Restorer ────────────────────────────────────────────────
 
-async def run_photo_restoration(image_url: str) -> tuple[str, str | None]:
-    """Restore old/damaged photo using GFPGAN. Returns (output_url, replicate_id)."""
+STRENGTH_PARAMS = {
+    "light": {"weight": 0.15, "scale": 1},
+    "medium": {"weight": 0.4, "scale": 2},
+    "heavy": {"weight": 0.7, "scale": 2},
+}
+
+
+async def run_photo_restoration(image_url: str, strength: str = "medium") -> tuple[str, str | None]:
+    """Restore old/damaged photo using GFPGAN.
+
+    Strength levels:
+      - light:  weight=0.15, scale=1  (subtle cleanup, preserves original feel)
+      - medium: weight=0.4,  scale=2  (balanced restoration with face enhancement)
+      - heavy:  weight=0.7,  scale=2  (deep restoration for severely damaged photos)
+    """
     tpl = TOOL_PROMPTS["photo-restorer"]
+    s = STRENGTH_PARAMS.get(strength, STRENGTH_PARAMS["medium"])
     async def _call():
         return await _run_model(
             tpl.model,
-            input={"img": image_url, **tpl.default_params},
+            input={"img": image_url, "version": tpl.default_params["version"], **s},
         )
     output = await retry_with_backoff(_call)
     return str(output), None

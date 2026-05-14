@@ -52,13 +52,13 @@ TOOL_PROMPTS: dict[str, PromptTemplate] = {
     ),
 
     "photo-restorer": PromptTemplate(
-        model="xinntiao/gfpgan:92296352d6ba42479f5c1629c5a2007e5cc09a71a08e2695d3e3d27e11069496",
+        model="tencentarc/gfpgan:0fbacf7afc6c144e5be9767cff80f25aff23e52b0708f17e20f9879b2f21516c",
         positive_prompt="",
-        negative_prompt=NEGATIVE_GFPGAN,
+        negative_prompt="",
         default_params={
             "version": "v1.4",
             "scale": 2,
-            "weight": 0.5,
+            "weight": 0.4,
         },
     ),
 

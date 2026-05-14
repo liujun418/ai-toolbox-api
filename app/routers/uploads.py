@@ -268,7 +268,10 @@ async def upload_and_process(
             task.completed_at = datetime.now(UTC)
 
         elif tool_type == "photo-restorer":
-            output, replicate_id = await run_photo_restoration(image_url)
+            strength = "medium"
+            if prompt and prompt.strip().lower() in ("light", "medium", "heavy"):
+                strength = prompt.strip().lower()
+            output, replicate_id = await run_photo_restoration(image_url, strength)
             task.output_file_url = output
             task.status = TaskStatus.COMPLETED
             task.completed_at = datetime.now(UTC)
