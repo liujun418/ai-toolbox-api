@@ -53,13 +53,14 @@ ALLOWED_IMAGE_CONTENT_TYPES = {"image/png", "image/jpeg", "image/webp"}
 
 # Friendly error messages for known failure patterns
 ERROR_MESSAGES = {
-    "timeout": "Processing timed out — this image may be too large or complex. Try a smaller image (under 2000px).",
+    "timeout": "Processing timed out — this may be due to input size or server load. Try again with smaller input.",
     "rate_limit": "Too many requests right now. Please wait a moment and try again.",
-    "model_error": "The AI model couldn't process this image. It may be too small, too blurry, or in an unusual format. Try a clearer image.",
+    "model_error": "The AI model couldn't process this request. The input may be too long or in an unexpected format.",
     "validation": "This file doesn't appear to be a valid image. Please use PNG, JPG, or WebP.",
     "image_too_small": "The image is too small to upscale meaningfully. Minimum recommended: 100×100 pixels.",
-    "gpu_oom": "The image is too large for the AI model. Try a smaller image (under 3000px on the longest side).",
+    "gpu_oom": "The input is too large for the AI model. Try a smaller image (under 3000px) or shorter text.",
     "face_not_found": "No clear face detected in this image. Face Pro works best with visible, front-facing portraits.",
+    "text_too_long": "The text is too long for the AI to process. Try shortening it or splitting into smaller sections.",
 }
 
 
@@ -74,10 +75,14 @@ def _friendly_error(message: str) -> str:
         return ERROR_MESSAGES["gpu_oom"]
     if "face" in msg_lower and ("detect" in msg_lower or "not found" in msg_lower or "no face" in msg_lower):
         return ERROR_MESSAGES["face_not_found"]
-    if "corrupt" in msg_lower or "invalid" in msg_lower or "cannot identify" in msg_lower:
+    # Only match "invalid" for image-related errors
+    if ("invalid" in msg_lower and ("image" in msg_lower or "format" in msg_lower or "file" in msg_lower)) \
+            or "corrupt" in msg_lower or "cannot identify" in msg_lower:
         return ERROR_MESSAGES["validation"]
     if "too small" in msg_lower or "resolution" in msg_lower:
         return ERROR_MESSAGES["image_too_small"]
+    if "too long" in msg_lower or "too many" in msg_lower:
+        return ERROR_MESSAGES["text_too_long"]
     if "replicate" in msg_lower or "model" in msg_lower or "prediction" in msg_lower:
         return ERROR_MESSAGES["model_error"]
     # Default: truncate long messages
