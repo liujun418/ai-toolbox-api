@@ -114,7 +114,7 @@ CREDIT_COSTS: dict[str, float] = {
     "background-remover": 2,
     "watermark-remover": 3,
     "photo-restorer": 5,
-    "pdf-to-word": 1,
+    "pdf-to-word": 0,  # free — local processing, no AI API call
     "image-upscaler": 2,
     "style-transfer": 4,
     "text-polish": 3,

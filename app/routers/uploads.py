@@ -355,28 +355,8 @@ async def upload_and_process(
             page_count = await get_pdf_page_count(file_bytes)
             scanned = is_scanned_pdf(file_bytes)
 
-            # Credit cost tiers — text vs scanned
-            if scanned:
-                if page_count <= 5:
-                    actual_cost = 3
-                elif page_count <= 20:
-                    actual_cost = 5
-                else:
-                    actual_cost = 7
-            else:
-                if page_count <= 5:
-                    actual_cost = 1
-                elif page_count <= 20:
-                    actual_cost = 2
-                else:
-                    actual_cost = 3
-
-            if user.credits < actual_cost:
-                raise HTTPException(
-                    status_code=402,
-                    detail=f"Not enough credits. This PDF has {page_count} pages "
-                    f"and requires {actual_cost} credits, but you have {user.credits:.0f}.",
-                )
+            # Free tool — no AI API calls (local PyMuPDF processing only)
+            actual_cost = 0
 
             task.credits_cost = actual_cost
             credits_needed = actual_cost
