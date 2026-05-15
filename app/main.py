@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.database import engine
-from app.routers import auth, tasks, uploads, payments, admin, lateral_thinking, bing_wallpaper, nasa_apod
+from app.routers import auth, tasks, uploads, payments, admin, lateral_thinking, bing_wallpaper, nasa_apod, crypto_price
 
 logging.basicConfig(
     level=logging.INFO,
@@ -88,6 +88,7 @@ app.include_router(admin.router)
 app.include_router(lateral_thinking.router)
 app.include_router(bing_wallpaper.router)
 app.include_router(nasa_apod.router)
+app.include_router(crypto_price.router)
 
 
 @app.get("/")
