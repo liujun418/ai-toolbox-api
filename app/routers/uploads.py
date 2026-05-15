@@ -25,6 +25,7 @@ from app.services.storage import (
 )
 from app.services.pdf_service import convert_pdf_to_word, get_pdf_page_count, is_scanned_pdf, convert_scanned_pdf_to_word
 from app.services.replicate_service import (
+    run_ai_image_generation,
     run_avatar_generation,
     run_background_remover,
     run_image_upscaler,
@@ -43,6 +44,7 @@ router = APIRouter(prefix="/api/upload", tags=["upload"])
 
 # Image tools that need preprocessing/postprocessing
 IMAGE_TOOL_TYPES = {
+    "ai-image-generator",
     "background-remover",
     "watermark-remover",
     "photo-restorer",
@@ -87,11 +89,15 @@ def _friendly_error(message: str, tool_type: str = "") -> str:
 @router.post("/{tool_type}", response_model=TaskResponse)
 async def upload_and_process(
     tool_type: str,
-    file: UploadFile = File(...),
+    file: UploadFile | None = File(default=None),
     prompt: str | None = Form(default=None),
     style: str | None = Form(default=None),
     bg_color: str | None = Form(default=None),
     mask: UploadFile | None = File(default=None),
+    quality: str | None = Form(default=None),
+    aspect_ratio: str | None = Form(default=None),
+    output_format: str | None = Form(default=None),
+    num_images: str | None = Form(default=None),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -100,34 +106,44 @@ async def upload_and_process(
         raise HTTPException(status_code=400, detail=f"Unknown tool type: {tool_type}")
 
     credits_needed = CREDIT_COSTS[tool_type]
+
+    # ── File validation ──
+    if tool_type == "ai-image-generator":
+        # AI Image Generator: file is optional (reference image), prompt is required
+        if not prompt or not prompt.strip():
+            raise HTTPException(status_code=400, detail="Please provide a text description of the image you want to generate.")
+        file_bytes = await file.read() if file else b""
+    else:
+        if file is None:
+            raise HTTPException(status_code=400, detail="File is required for this tool")
+        file_bytes = await file.read()
+        if not file_bytes:
+            raise HTTPException(status_code=400, detail="Empty file uploaded")
+
     if user.credits < credits_needed:
         raise HTTPException(
             status_code=402,
             detail=f"Not enough credits. Need {credits_needed}, have {user.credits:.0f}",
         )
 
-    # Read file bytes
-    file_bytes = await file.read()
-    if not file_bytes:
-        raise HTTPException(status_code=400, detail="Empty file uploaded")
+    # Size validation (skip for ai-image-generator without reference image)
+    if file is not None and file_bytes:
+        if tool_type == "pdf-to-word":
+            size_limit = 20 * 1024 * 1024
+        elif tool_type in IMAGE_TOOL_TYPES:
+            size_limit = settings.IMAGE_TOOLS_MAX_FILE_SIZE
+        else:
+            size_limit = 5 * 1024 * 1024
 
-    # Size validation
-    if tool_type == "pdf-to-word":
-        size_limit = 20 * 1024 * 1024
-    elif tool_type in IMAGE_TOOL_TYPES:
-        size_limit = settings.IMAGE_TOOLS_MAX_FILE_SIZE
-    else:
-        size_limit = 5 * 1024 * 1024
+        if len(file_bytes) > size_limit:
+            limit_mb = size_limit // (1024 * 1024)
+            raise HTTPException(
+                status_code=400,
+                detail=f"File too large. Maximum size is {limit_mb}MB.",
+            )
 
-    if len(file_bytes) > size_limit:
-        limit_mb = size_limit // (1024 * 1024)
-        raise HTTPException(
-            status_code=400,
-            detail=f"File too large. Maximum size is {limit_mb}MB.",
-        )
-
-    # Content-type validation for image tools
-    if tool_type in IMAGE_TOOL_TYPES:
+    # Content-type validation for image tools (with file)
+    if tool_type in IMAGE_TOOL_TYPES and file is not None and file_bytes:
         content_type = file.content_type or ""
         if content_type not in ALLOWED_IMAGE_CONTENT_TYPES:
             # Also allow if PIL can open it
@@ -148,7 +164,8 @@ async def upload_and_process(
 
     # Create task
     task_id = str(uuid.uuid4())
-    upload_key = generate_upload_key(file.filename or "upload.png", user.id)
+    upload_filename = file.filename if file and file.filename else "upload.png"
+    upload_key = generate_upload_key(upload_filename, user.id)
     task = Task(
         id=task_id,
         user_id=user.id,
@@ -162,40 +179,45 @@ async def upload_and_process(
     db.commit()
 
     result_content = None
+    image_url = ""
 
     try:
-        # Preprocess images for image tools
-        if tool_type in IMAGE_TOOL_TYPES:
+        # Preprocess images for image tools (skip ai-image-generator if no reference image)
+        if tool_type in IMAGE_TOOL_TYPES and file_bytes:
             keep_alpha = tool_type == "background-remover"
             try:
                 if tool_type == "avatar-generator":
                     file_bytes, img_meta = preprocess_avatar(file_bytes)
                 elif tool_type == "style-transfer":
                     file_bytes, img_meta = preprocess_style_transfer(file_bytes)
+                elif tool_type == "ai-image-generator":
+                    pass  # Reference image handled in the ai-image-generator branch
                 else:
                     file_bytes, img_meta = preprocess_image(file_bytes, keep_alpha=keep_alpha)
-                logger.info(
-                    "Preprocessed image for task %s: %dx%d -> %s (%d bytes)",
-                    task_id,
-                    img_meta["original_width"],
-                    img_meta["original_height"],
-                    img_meta.get("output_format", "unknown"),
-                    img_meta.get("processed_size", 0),
-                )
+                if tool_type != "ai-image-generator":
+                    logger.info(
+                        "Preprocessed image for task %s: %dx%d -> %s (%d bytes)",
+                        task_id,
+                        img_meta["original_width"],
+                        img_meta["original_height"],
+                        img_meta.get("output_format", "unknown"),
+                        img_meta.get("processed_size", 0),
+                    )
             except Exception as e:
                 logger.warning("Preprocessing failed for task %s: %s", task_id, str(e))
                 # Continue with original bytes
 
         if tool_type in TEXT_TOOL_TYPES:
-            content_type = file.content_type or "text/plain"
+            content_type = file.content_type if file else "text/plain"
         elif tool_type in IMAGE_TOOL_TYPES:
             content_type = "image/png"  # preprocess outputs PNG or JPEG
         else:
-            content_type = file.content_type or "application/octet-stream"
+            content_type = file.content_type if file else "application/octet-stream"
 
-        # Upload to storage
-        await upload_file(file_bytes, upload_key, content_type)
-        image_url = generate_presigned_url(upload_key, expires_in=3600)
+        # Upload to storage (skip for ai-image-generator without reference)
+        if file_bytes:
+            await upload_file(file_bytes, upload_key, content_type)
+            image_url = generate_presigned_url(upload_key, expires_in=3600)
 
         replicate_id = None
 
@@ -348,6 +370,151 @@ async def upload_and_process(
             output_key = generate_download_key(user.id, task_id, "txt")
             await upload_file(output.encode("utf-8"), output_key, "text/plain")
             task.output_file_url = generate_presigned_url(output_key, expires_in=3600)
+            task.status = TaskStatus.COMPLETED
+            task.completed_at = datetime.now(UTC)
+
+        elif tool_type == "ai-image-generator":
+            # ── Parse parameters ──
+            q = (quality or "medium").lower()
+            if q not in ("low", "medium", "high"):
+                q = "medium"
+            ar = (aspect_ratio or "1:1")
+            if ar not in ("1:1", "3:2", "2:3"):
+                ar = "1:1"
+            fmt = (output_format or "png").lower()
+            if fmt not in ("png", "webp", "jpeg"):
+                fmt = "png"
+            img_count = int(num_images or "1")
+            img_count = max(1, min(4, img_count))
+            user_text = (prompt or "").strip()
+
+            if not user_text:
+                raise HTTPException(status_code=400, detail="Please provide a text description of the image you want to generate.")
+
+            # ── Calculate dynamic credit cost ──
+            quality_base = {"low": 1, "medium": 2, "high": 3}[q]
+            extra_images = max(0, img_count - 1)
+            actual_cost = quality_base + extra_images
+
+            # Reference image check: if uploaded file has valid content, it's a reference image
+            has_reference = False
+            try:
+                test_img = Image.open(io_module.BytesIO(file_bytes))
+                w, h = test_img.size
+                if w > 1 and h > 1:  # real image, not dummy 1x1 placeholder
+                    has_reference = True
+                    actual_cost += 1
+            except Exception:
+                pass  # not a valid image, treated as no-reference
+
+            if user.credits < actual_cost:
+                raise HTTPException(
+                    status_code=402,
+                    detail=f"Not enough credits. Need {actual_cost}, have {user.credits:.0f}",
+                )
+
+            task.credits_cost = actual_cost
+            credits_needed = actual_cost
+
+            # ── Preprocess reference image if provided ──
+            reference_url: str | None = None
+            if has_reference:
+                try:
+                    ref_bytes, ref_meta = preprocess_image(file_bytes, keep_alpha=False)
+                    ref_key = f"reference/{user.id}/{uuid.uuid4().hex}.png"
+                    await upload_file(ref_bytes, ref_key, "image/png")
+                    reference_url = generate_presigned_url(ref_key, expires_in=3600)
+                    logger.info("Reference image preprocessed for task %s: %dx%d",
+                                task_id, ref_meta["original_width"], ref_meta["original_height"])
+                except Exception as e:
+                    logger.warning("Reference image preprocessing failed for task %s: %s", task_id, str(e))
+                    raise HTTPException(
+                        status_code=400,
+                        detail="The reference image could not be processed. Please use PNG, JPG, or WebP under 3MB.",
+                    )
+
+            # ── Generate images ──
+            try:
+                output_urls = await run_ai_image_generation(
+                    user_prompt=user_text,
+                    quality=q,
+                    aspect_ratio=ar,
+                    num_images=img_count,
+                    reference_image_url=reference_url,
+                )
+            except Exception as e:
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"Image generation failed: {_friendly_error(str(e), 'ai-image-generator')}",
+                )
+
+            if not output_urls:
+                raise HTTPException(
+                    status_code=502,
+                    detail="The AI model returned no images. Try a different prompt or lower the quality setting.",
+                )
+
+            # ── Download generated images, convert format, re-upload ──
+            import httpx as _httpx
+
+            result_urls: list[str] = []
+            for i, url in enumerate(output_urls):
+                try:
+                    resp = _httpx.get(url, follow_redirects=True, timeout=60)
+                    if resp.status_code != 200:
+                        logger.warning("Failed to download generated image %d: HTTP %d", i, resp.status_code)
+                        continue
+                    img_bytes = resp.content
+                except Exception as e:
+                    logger.warning("Failed to download generated image %d: %s", i, str(e))
+                    continue
+
+                # Format conversion
+                try:
+                    img = Image.open(io_module.BytesIO(img_bytes))
+                    if img.mode in ("RGBA", "LA", "PA"):
+                        img = img.convert("RGBA")
+                    else:
+                        img = img.convert("RGB")
+
+                    buf = io_module.BytesIO()
+                    if fmt == "webp":
+                        img.save(buf, format="WEBP", quality=90)
+                        content_type = "image/webp"
+                        ext = "webp"
+                    elif fmt == "jpeg":
+                        if img.mode == "RGBA":
+                            bg = Image.new("RGB", img.size, (255, 255, 255))
+                            bg.paste(img, mask=img.split()[3])
+                            img = bg
+                        img.save(buf, format="JPEG", quality=92, optimize=True)
+                        content_type = "image/jpeg"
+                        ext = "jpg"
+                    else:  # png
+                        img.save(buf, format="PNG", optimize=True)
+                        content_type = "image/png"
+                        ext = "png"
+
+                    out_key = f"output/{user.id}/{task_id}_{i}.{ext}"
+                    await upload_file(buf.getvalue(), out_key, content_type)
+                    result_urls.append(generate_presigned_url(out_key, expires_in=3600))
+                except Exception as e:
+                    logger.warning("Format conversion failed for image %d: %s", i, str(e))
+                    # Fallback: re-upload original
+                    out_key = f"output/{user.id}/{task_id}_{i}.png"
+                    await upload_file(img_bytes, out_key, "image/png")
+                    result_urls.append(generate_presigned_url(out_key, expires_in=3600))
+
+            if not result_urls:
+                raise HTTPException(
+                    status_code=502,
+                    detail="All generated images failed to process. Please try again.",
+                )
+
+            task.output_file_url = result_urls[0]
+            import json as _json
+
+            result_content = _json.dumps(result_urls)
             task.status = TaskStatus.COMPLETED
             task.completed_at = datetime.now(UTC)
 

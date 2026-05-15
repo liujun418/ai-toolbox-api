@@ -204,6 +204,48 @@ AVATAR_NEGATIVE_PROMPTS: dict[str, str] = {
     ),
 }
 
+# ── AI Image Generator (SDXL) ──────────────────────────────────────
+
+AI_IMAGE_GENERATOR_NEGATIVE = (
+    "deformed, distorted, disfigured, bad anatomy, extra limbs, missing limbs, "
+    "floating limbs, disconnected limbs, mutation, mutated, ugly, disgusting, "
+    "blurry, blur, low quality, low resolution, worst quality, jpeg artifacts, "
+    "grainy, noisy, oversaturated, underexposed, overexposed, poor lighting, "
+    "watermark, text, signature, username, logo, copyright, frame, border, "
+    "collage, multiple views, split screen, cropped, out of frame, cut off, "
+    "asymmetric eyes, cross-eyed, poorly drawn face, cloned face, extra fingers, "
+    "fused fingers, too many fingers, long neck, bad proportions, unnatural colors, "
+    "double image, ghosting, haze, fog, distorted perspective, warped"
+)
+
+AI_IMAGE_GENERATOR_POSITIVE_PREFIX = (
+    "masterpiece, best quality, highly detailed, sharp focus, professional, "
+    "stunning, beautiful, high resolution, 4k, 8k, intricate details"
+)
+
+# Per-quality SDXL generation parameters
+AI_IMAGE_GENERATOR_PARAMS = {
+    "low": {
+        "num_inference_steps": 20,
+        "guidance_scale": 7.0,
+    },
+    "medium": {
+        "num_inference_steps": 30,
+        "guidance_scale": 8.0,
+    },
+    "high": {
+        "num_inference_steps": 50,
+        "guidance_scale": 9.0,
+    },
+}
+
+# Aspect ratio → SDXL dimensions
+AI_IMAGE_GENERATOR_DIMENSIONS = {
+    "1:1":  (1024, 1024),
+    "3:2":  (1216, 832),
+    "2:3":  (832, 1216),
+}
+
 # ── PDF to Word: Llama 3.1 405B document restructure system prompt ──
 
 PDF_RESTRUCTURE_SYSTEM_PROMPT = (

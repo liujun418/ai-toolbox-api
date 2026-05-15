@@ -110,6 +110,7 @@ class TokenResponse(BaseModel):
 # --- Pricing constants ---
 
 CREDIT_COSTS: dict[str, float] = {
+    "ai-image-generator": 1,  # base cost; actual varies by quality/count/reference
     "avatar-generator": 5,
     "background-remover": 2,
     "watermark-remover": 3,

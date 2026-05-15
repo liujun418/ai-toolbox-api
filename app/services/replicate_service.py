@@ -17,6 +17,10 @@ from app.services.prompt_templates import (
     AVATAR_NEGATIVE_PROMPTS,
     AVATAR_PARAMS,
     PDF_RESTRUCTURE_SYSTEM_PROMPT,
+    AI_IMAGE_GENERATOR_NEGATIVE,
+    AI_IMAGE_GENERATOR_POSITIVE_PREFIX,
+    AI_IMAGE_GENERATOR_PARAMS,
+    AI_IMAGE_GENERATOR_DIMENSIONS,
     PromptTemplate,
 )
 from app.services.style_references import get_style_reference_url
@@ -396,6 +400,58 @@ async def run_text_polish(text: str, mode: str = "polish") -> str:
         results.append("".join(list(output)).strip())
 
     return "\n\n".join(results).strip()
+
+
+# ── AI Image Generator (SDXL text-to-image / image-to-image) ──────
+
+async def run_ai_image_generation(
+    user_prompt: str,
+    quality: str = "medium",
+    aspect_ratio: str = "1:1",
+    num_images: int = 1,
+    reference_image_url: str | None = None,
+) -> list[str]:
+    """Generate AI images using stability-ai/sdxl.
+
+    Args:
+        user_prompt: User's text description.
+        quality: "low", "medium", or "high" — controls inference steps and CFG scale.
+        aspect_ratio: "1:1", "3:2", or "2:3" — output dimensions.
+        num_images: 1-4 images to generate.
+        reference_image_url: Optional reference image for img2img mode.
+
+    Returns:
+        List of output image URLs.
+    """
+    params = AI_IMAGE_GENERATOR_PARAMS.get(quality, AI_IMAGE_GENERATOR_PARAMS["medium"])
+    dims = AI_IMAGE_GENERATOR_DIMENSIONS.get(aspect_ratio, (1024, 1024))
+
+    # Build enhanced prompt
+    full_prompt = f"{AI_IMAGE_GENERATOR_POSITIVE_PREFIX}, {user_prompt}"
+
+    inp: dict = {
+        "prompt": full_prompt,
+        "negative_prompt": AI_IMAGE_GENERATOR_NEGATIVE,
+        "num_outputs": max(1, min(4, num_images)),
+        "num_inference_steps": params["num_inference_steps"],
+        "guidance_scale": params["guidance_scale"],
+        "width": dims[0],
+        "height": dims[1],
+    }
+
+    # Image-to-image mode when reference image provided
+    if reference_image_url:
+        inp["image"] = reference_image_url
+        inp["prompt_strength"] = 0.65
+
+    async def _call():
+        return await _run_model(
+            "stability-ai/sdxl:7762fd07cf82c948538e41f63f77d685e02b063e37e496e96eefd46c929f9bdc",
+            input=inp,
+        )
+
+    output = await retry_with_backoff(_call)
+    return [str(u) for u in output]
 
 
 # ── PDF OCR ─────────────────────────────────────────────────────────
