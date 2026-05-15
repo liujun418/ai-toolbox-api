@@ -404,30 +404,59 @@ async def run_pdf_ocr(file_url: str) -> str:
     """Extract text from PDF (including scanned/image-based) using DeepSeek OCR.
 
     DeepSeek OCR is a fast, multilingual OCR model on Replicate.
-    Accepts PDF/images and outputs markdown with structure preserved.
+    Converts PDF pages to images, sends each page to OCR, and combines results.
+    Output is markdown with structure preserved.
     """
-    async def _call():
-        client = _get_client()
-        return await asyncio.to_thread(
-            client.run,
-            "lucataco/deepseek-ocr",
-            input={
-                "file": file_url,
-            },
-        )
+    import io as _io
+    import fitz as _fitz
+    import httpx as _httpx
 
-    output = await retry_with_backoff(_call)
+    # Download PDF from presigned URL
+    resp = _httpx.get(file_url, follow_redirects=True, timeout=30)
+    pdf_bytes = resp.content
 
-    # DeepSeek OCR returns a string (markdown)
-    if isinstance(output, str):
-        return output
-    if isinstance(output, dict) and "output" in output:
-        return str(output["output"])
-    # If output is an iterator, join it
-    try:
-        return "".join(list(output))
-    except TypeError:
-        return str(output)
+    # Convert each page to an image
+    pdf_stream = _io.BytesIO(pdf_bytes)
+    doc = _fitz.open(stream=pdf_stream, filetype="pdf")
+    page_images = []
+    for page_num in range(len(doc)):
+        page = doc[page_num]
+        # Render page to image at 150 DPI for good OCR quality
+        pix = page.get_pixmap(dpi=150)
+        img_bytes = pix.tobytes("png")
+        page_images.append(img_bytes)
+    doc.close()
+
+    # OCR each page
+    all_text = []
+    for i, img_bytes in enumerate(page_images):
+        async def _call(img_bytes=img_bytes):
+            client = _get_client()
+            return await asyncio.to_thread(
+                client.run,
+                "lucataco/deepseek-ocr:cb3b474fbfc56b1664c8c7841550bccecbe7b74c30e45ce938ffca1180b4dff5",
+                input={
+                    "image": _io.BytesIO(img_bytes),
+                    "task_type": "Convert to Markdown",
+                    "resolution_size": "Gundam (Recommended)",
+                },
+            )
+
+        output = await retry_with_backoff(_call)
+
+        # Extract text from output
+        if isinstance(output, str):
+            all_text.append(output)
+        else:
+            try:
+                all_text.append("".join(list(output)))
+            except TypeError:
+                all_text.append(str(output))
+
+        if len(page_images) > 1:
+            all_text.append(f"\n--- Page {i + 1} ---\n")
+
+    return "\n".join(all_text).strip()
 
 
 async def run_pdf_restructure(ocr_text: str) -> str:
