@@ -204,7 +204,189 @@ AVATAR_NEGATIVE_PROMPTS: dict[str, str] = {
     ),
 }
 
-# ── AI Image Generator (SDXL) ──────────────────────────────────────
+# ── AI Image Generator: Scene configuration (extensible) ──────────
+# Each scene provides: prefix prompt, style keywords, optional negative override,
+# recommended aspect ratio, and whether to lock the ratio.
+# To add a new scene: just add an entry here + add metadata in the frontend scene list.
+AI_IMAGE_GENERATOR_SCENES: dict[str, dict] = {
+    "free": {
+        "prefix": "",
+        "style": "",
+        "negative_override": None,
+        "recommended_ratio": None,
+        "lock_ratio": False,
+    },
+    "portrait": {
+        "prefix": (
+            "professional portrait photography, single person, upper body shot, "
+            "clean background, soft bokeh, natural skin texture,"
+        ),
+        "style": (
+            "studio lighting, 85mm portrait lens, Canon EOS R5, "
+            "magazine editorial style, professional color grading"
+        ),
+        "negative_override": (
+            "group photo, full body, messy background, cartoon, anime, illustration, "
+            "3d render, low quality portrait, harsh lighting, overexposed, "
+            "deformed face, extra fingers, bad anatomy"
+        ),
+        "recommended_ratio": "2:3",
+        "lock_ratio": True,
+    },
+    "ecommerce": {
+        "prefix": (
+            "professional product photography, single product on pure white background, "
+            "studio lighting setup, commercial product shot, clean and minimal"
+        ),
+        "style": (
+            "softbox lighting, product photography, e-commerce hero image, "
+            "high-end commercial quality, 8k product render, macro detail shot"
+        ),
+        "negative_override": (
+            "cluttered background, multiple products, hands holding product, "
+            "watermark, logo, text on product, shadow chaos, low quality, "
+            "harsh reflection, dark background, messy scene, distorted product"
+        ),
+        "recommended_ratio": "1:1",
+        "lock_ratio": True,
+    },
+    "social-media": {
+        "prefix": (
+            "eye-catching social media post design, bold visual hierarchy, "
+            "modern graphic design, engaging composition, vibrant and scroll-stopping, "
+            "negative space for text overlay, Instagram-optimized"
+        ),
+        "style": (
+            "modern flat design with depth, vibrant color palette, "
+            "clean typography-friendly background, social media marketing, "
+            "high engagement visual, contemporary aesthetic"
+        ),
+        "negative_override": (
+            "cluttered, messy, too much text, watermark, dated design, "
+            "low contrast, boring, dull colors, corporate stock photo, "
+            "small subject, busy background, unreadable text space"
+        ),
+        "recommended_ratio": "1:1",
+        "lock_ratio": True,
+    },
+    "short-video-cover": {
+        "prefix": (
+            "YouTube thumbnail style, dramatic and click-worthy composition, "
+            "bold visual impact, strong focal point centered, vibrant colors, "
+            "professional video cover art, high CTR optimized"
+        ),
+        "style": (
+            "cinematic lighting, dramatic contrast, motion blur hints, "
+            "video thumbnail aesthetic, eye-catching thumbnail, "
+            "professional YouTuber style, high energy visual"
+        ),
+        "negative_override": (
+            "small subject in frame, dull colors, low contrast, "
+            "text-heavy, watermark, boring composition, flat lighting, "
+            "tiny details, wide landscape, empty space"
+        ),
+        "recommended_ratio": "16:9",
+        "lock_ratio": False,  # SDXL doesn't natively support 16:9, use 3:2 as closest
+    },
+    "app-ui": {
+        "prefix": (
+            "modern mobile app UI design, clean user interface, "
+            "minimalist flat design, well-organized layout, professional app screen, "
+            "iOS design language, beautiful UI components"
+        ),
+        "style": (
+            "clean minimal UI design, soft shadows, rounded corners, "
+            "modern tech aesthetic, Dribbble-quality UI, "
+            "light mode app interface, subtle gradient accents"
+        ),
+        "negative_override": (
+            "cluttered interface, outdated design, dark mode unless specified, "
+            "realistic photo, 3d render, skeuomorphic, complex charts, "
+            "code visible, messy layout, low quality UI, web browser, desktop UI"
+        ),
+        "recommended_ratio": "2:3",
+        "lock_ratio": True,
+    },
+    "live-stream-ui": {
+        "prefix": (
+            "professional live streaming interface design, clean streaming overlay, "
+            "modern streaming dashboard, well-organized layout, "
+            "broadcast-quality UI, engaging streaming screen"
+        ),
+        "style": (
+            "gaming stream aesthetic, modern UI with neon accents, "
+            "clean chat area, donation alert space, professional streamer setup, "
+            "dark theme with vibrant accents, Twitch-style design"
+        ),
+        "negative_override": (
+            "cluttered layout, messy interface, outdated design, "
+            "realistic photo, 3d scene, small text, unreadable, "
+            "light mode, boring layout, empty screen, broken UI"
+        ),
+        "recommended_ratio": "16:9",
+        "lock_ratio": False,  # Use 3:2 as closest SDXL-supported ratio
+    },
+    "anime": {
+        "prefix": (
+            "high quality anime illustration, detailed character art, "
+            "vibrant cel-shaded colors, clean lineart, expressive composition, "
+            "Japanese anime style, studio quality key visual"
+        ),
+        "style": (
+            "Makoto Shinkai anime movie style, studio Ghibli-level detail, "
+            "beautiful lighting effects, hand-drawn anime aesthetic, "
+            "professional anime production quality, rich colors"
+        ),
+        "negative_override": (
+            "realistic photo, 3d render, western cartoon style, pixel art, "
+            "sketch, rough draft, low quality, deformed face, bad anatomy, "
+            "ugly, blurry, distorted, watermark, text, signature"
+        ),
+        "recommended_ratio": "2:3",
+        "lock_ratio": True,
+    },
+    "landscape": {
+        "prefix": (
+            "breathtaking landscape photography, wide scenic vista, "
+            "perfect composition with foreground interest and distant horizon, "
+            "professional nature photography, rich depth and atmosphere"
+        ),
+        "style": (
+            "golden hour lighting, National Geographic quality, "
+            "cinematic composition, atmospheric haze, "
+            "hyper-realistic nature photography, stunning natural beauty, "
+            "professional travel photographer style"
+        ),
+        "negative_override": (
+            "urban city, buildings, people in frame, cars, roads, "
+            "artificial structures, cartoon, painting, illustration, "
+            "low quality, flat lighting, overcast boring sky, "
+            "watermark, text, tilt-shift miniature effect"
+        ),
+        "recommended_ratio": "3:2",
+        "lock_ratio": True,
+    },
+    "business": {
+        "prefix": (
+            "professional business promotional design, corporate visual, "
+            "clean modern layout with sophisticated aesthetic, "
+            "professional marketing material, polished corporate image"
+        ),
+        "style": (
+            "corporate Memphis style, professional business illustration, "
+            "clean geometric elements with depth, modern office aesthetic, "
+            "blue and white professional palette, high-end corporate quality"
+        ),
+        "negative_override": (
+            "messy, childish, cartoon, informal, casual snapshot, "
+            "low quality, cluttered, dark moody, grunge, "
+            "distorted, unprofessional, handwritten font, watermark, "
+            "too colorful, chaotic composition"
+        ),
+        "recommended_ratio": "3:2",
+        "lock_ratio": True,
+    },
+}
 
 AI_IMAGE_GENERATOR_NEGATIVE = (
     "deformed, distorted, disfigured, bad anatomy, extra limbs, missing limbs, "
