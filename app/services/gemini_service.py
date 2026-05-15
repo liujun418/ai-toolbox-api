@@ -1,6 +1,6 @@
 """Gemini API service for lateral thinking puzzle generation and interaction.
 
-Uses Google Gemini free tier (gemini-1.5-flash): 15 RPM, 1,500 RPD.
+Uses Google Gemini free tier (gemini-2.0-flash): 15 RPM, 1,500 RPD.
 All calls are free — no credits deducted from users.
 """
 
@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 GEMINI_URL = (
     "https://generativelanguage.googleapis.com/v1beta/models/"
-    "gemini-1.5-flash:generateContent"
+    "gemini-2.0-flash:generateContent"
 )
 
 # ── System prompts per action ──
