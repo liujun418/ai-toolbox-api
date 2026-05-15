@@ -382,26 +382,24 @@ async def upload_and_process(
             credits_needed = actual_cost
 
             if scanned:
-                # OCR path: upload PDF to R2 → OCR model → Llama 3.1 405B restructure → .docx
+                # Scanned PDF path: render pages → embed images in .docx
                 pdf_key = generate_upload_key(file.filename or "document.pdf", user.id)
                 await upload_file(file_bytes, pdf_key, "application/pdf")
                 pdf_url = generate_presigned_url(pdf_key, expires_in=3600)
 
                 try:
-                    ocr_markdown = await run_pdf_ocr(pdf_url)
-                    logger.info("OCR completed for task %s: %d chars", task_id, len(ocr_markdown))
-
-                    restructured = await run_pdf_restructure(ocr_markdown)
-                    logger.info("Restructure completed for task %s: %d chars", task_id, len(restructured))
+                    ocr_text, page_images = await run_pdf_ocr(pdf_url)
+                    logger.info("Scanned PDF processed for task %s: %d text chars, %d image pages",
+                                task_id, len(ocr_text), len(page_images))
                 except Exception as e:
                     raise HTTPException(
                         status_code=502,
-                        detail=f"OCR processing failed: {_friendly_error(str(e), 'pdf-to-word')}",
+                        detail=f"PDF processing failed: {_friendly_error(str(e), 'pdf-to-word')}",
                     )
 
                 docx_bytes = await convert_scanned_pdf_to_word(
                     file_bytes, file.filename or "document.pdf",
-                    ocr_markdown, restructured,
+                    ocr_text, "", page_images,
                 )
             else:
                 # Text PDF path: PyMuPDF extraction (fast, no API calls)

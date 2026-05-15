@@ -392,17 +392,63 @@ async def convert_scanned_pdf_to_word(
     filename: str,
     ocr_markdown: str,
     restructured_markdown: str,
+    page_images: list[bytes] | None = None,
 ) -> bytes:
-    """Convert scanned PDF to Word using OCR + LLM restructured markdown.
+    """Convert scanned PDF to Word using OCR + LLM markdown or image embedding.
 
-    Args:
-        pdf_file_bytes: Original PDF bytes (for page count info)
-        filename: Original filename
-        ocr_markdown: Raw markdown from OCR model (datalab-to/marker)
-        restructured_markdown: Cleaned markdown from Llama 3.1 405B
-
-    Returns .docx bytes built from the restructured markdown.
+    For scanned PDFs where OCR is unavailable, embeds page images in the .docx.
+    For pages with text layers, uses the markdown content.
     """
-    # Use the restructured markdown if non-empty, otherwise fallback to raw OCR
+    if page_images:
+        # Image-based pages: embed images in .docx
+        return _images_to_docx(page_images, filename)
+    # Text-based pages: use markdown conversion
     source = restructured_markdown if restructured_markdown.strip() else ocr_markdown
     return markdown_to_docx(source)
+
+
+def _images_to_docx(page_images: list[bytes], filename: str = "document") -> bytes:
+    """Create a .docx with each page image embedded as a full-page picture."""
+    import io as _io
+    from docx.shared import Inches as _Inches
+    from docx.enum.section import WD_ORIENT
+
+    doc = Document()
+
+    # Set narrow margins
+    for section in doc.sections:
+        section.top_margin = _Inches(0.5)
+        section.bottom_margin = _Inches(0.5)
+        section.left_margin = _Inches(0.5)
+        section.right_margin = _Inches(0.5)
+
+    for i, img_bytes in enumerate(page_images):
+        if i > 0:
+            doc.add_page_break()
+
+        # Add page label
+        p = doc.add_paragraph()
+        run = p.add_run(f"Page {i + 1}")
+        run.bold = True
+        run.font.size = Pt(11)
+        _set_paragraph_spacing(p, space_before=0, space_after=6)
+
+        # Embed image
+        img_stream = _io.BytesIO(img_bytes)
+        try:
+            doc.add_picture(img_stream, width=_Inches(6.0))
+        except Exception:
+            # If image embedding fails, add placeholder
+            p2 = doc.add_paragraph()
+            p2.add_run(f"[Image for page {i + 1} could not be embedded]")
+
+        # Add separator
+        if i < len(page_images) - 1:
+            p_sep = doc.add_paragraph()
+            p_sep.add_run("—" * 40)
+            p_sep.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+    buf = _io.BytesIO()
+    doc.save(buf)
+    buf.seek(0)
+    return buf.read()
