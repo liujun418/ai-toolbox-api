@@ -4,6 +4,7 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     DATABASE_URL: str = "postgresql://user:password@localhost:5432/aitoolbox"
     REPLICATE_API_TOKEN: str = ""
+    GEMINI_API_KEY: str = ""
     AWS_ACCESS_KEY_ID: str = ""
     AWS_SECRET_ACCESS_KEY: str = ""
     AWS_S3_ENDPOINT: str = ""  # Empty for AWS S3, Cloudflare R2 URL otherwise

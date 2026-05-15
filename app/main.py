@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.database import engine
-from app.routers import auth, tasks, uploads, payments, admin
+from app.routers import auth, tasks, uploads, payments, admin, lateral_thinking
 
 logging.basicConfig(
     level=logging.INFO,
@@ -69,7 +69,11 @@ app = FastAPI(
 # CORS - allow frontend to access API
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[settings.FRONTEND_URL, "http://localhost:3000"],
+    allow_origins=[
+        settings.FRONTEND_URL,
+        "http://localhost:3000",
+        "https://toolboxonline.club",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -81,6 +85,7 @@ app.include_router(tasks.router)
 app.include_router(uploads.router)
 app.include_router(payments.router)
 app.include_router(admin.router)
+app.include_router(lateral_thinking.router)
 
 
 @app.get("/")
