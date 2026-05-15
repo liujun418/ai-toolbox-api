@@ -410,7 +410,6 @@ async def run_ai_image_generation(
     aspect_ratio: str = "1:1",
     num_images: int = 1,
     reference_image_url: str | None = None,
-    negative_override: str | None = None,
 ) -> list[str]:
     """Generate AI images using stability-ai/sdxl.
 
@@ -430,11 +429,9 @@ async def run_ai_image_generation(
     # Build enhanced prompt
     full_prompt = f"{AI_IMAGE_GENERATOR_POSITIVE_PREFIX}, {user_prompt}"
 
-    negative = negative_override if negative_override else AI_IMAGE_GENERATOR_NEGATIVE
-
     inp: dict = {
         "prompt": full_prompt,
-        "negative_prompt": negative,
+        "negative_prompt": AI_IMAGE_GENERATOR_NEGATIVE,
         "num_outputs": max(1, min(4, num_images)),
         "num_inference_steps": params["num_inference_steps"],
         "guidance_scale": params["guidance_scale"],

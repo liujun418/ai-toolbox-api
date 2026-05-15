@@ -38,8 +38,6 @@ from app.services.replicate_service import (
     auto_detect_watermark,
 )
 
-from app.services.prompt_templates import AI_IMAGE_GENERATOR_SCENES
-
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/upload", tags=["upload"])
@@ -100,7 +98,6 @@ async def upload_and_process(
     aspect_ratio: str | None = Form(default=None),
     output_format: str | None = Form(default=None),
     num_images: str | None = Form(default=None),
-    scene: str | None = Form(default=None),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -394,23 +391,6 @@ async def upload_and_process(
             if not user_text:
                 raise HTTPException(status_code=400, detail="Please provide a text description of the image you want to generate.")
 
-            # ── Scene configuration ──
-            scene_id = (scene or "free").strip().lower()
-            scene_cfg = AI_IMAGE_GENERATOR_SCENES.get(scene_id, AI_IMAGE_GENERATOR_SCENES["free"])
-
-            # Build enhanced prompt: scene prefix + style + user text
-            enhanced_prompt = user_text
-            if scene_id != "free":
-                parts = [p for p in [scene_cfg.get("prefix", ""), scene_cfg.get("style", "")] if p]
-                if parts:
-                    enhanced_prompt = ", ".join(parts) + ", " + user_text
-
-            # Lock aspect ratio if scene requires it
-            if scene_cfg.get("lock_ratio") and scene_cfg.get("recommended_ratio"):
-                rec = scene_cfg["recommended_ratio"]
-                if rec in ("1:1", "3:2", "2:3"):
-                    ar = rec
-
             # ── Calculate dynamic credit cost ──
             quality_base = {"low": 1, "medium": 2, "high": 3}[q]
             extra_images = max(0, img_count - 1)
@@ -454,16 +434,13 @@ async def upload_and_process(
                     )
 
             # ── Generate images ──
-            # Build scene-specific negative prompt override
-            scene_negative = scene_cfg.get("negative_override") if scene_id != "free" else None
             try:
                 output_urls = await run_ai_image_generation(
-                    user_prompt=enhanced_prompt,
+                    user_prompt=user_text,
                     quality=q,
                     aspect_ratio=ar,
                     num_images=img_count,
                     reference_image_url=reference_url,
-                    negative_override=scene_negative,
                 )
             except Exception as e:
                 raise HTTPException(
