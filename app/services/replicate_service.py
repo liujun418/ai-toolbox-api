@@ -401,33 +401,33 @@ async def run_text_polish(text: str, mode: str = "polish") -> str:
 # ── PDF OCR ─────────────────────────────────────────────────────────
 
 async def run_pdf_ocr(file_url: str) -> str:
-    """Extract text from PDF (including scanned/image-based) using Datalab Marker.
+    """Extract text from PDF (including scanned/image-based) using DeepSeek OCR.
 
-    Marker is the #1 OCR model on Replicate (82.7 olmOCR-Bench).
-    It natively supports PDF input and outputs markdown with structure preserved.
-    Returns concatenated markdown from all pages.
+    DeepSeek OCR is a fast, multilingual OCR model on Replicate.
+    Accepts PDF/images and outputs markdown with structure preserved.
     """
     async def _call():
         client = _get_client()
         return await asyncio.to_thread(
             client.run,
-            "datalab-to/marker",
+            "lucataco/deepseek-ocr",
             input={
                 "file": file_url,
-                "force_ocr": True,
-                "paginate": False,
             },
         )
 
     output = await retry_with_backoff(_call)
 
-    # Marker returns a dict with "markdown" key
-    if isinstance(output, dict) and "markdown" in output:
-        return str(output["markdown"])
-    # Fallback: try to extract text from whatever format
+    # DeepSeek OCR returns a string (markdown)
     if isinstance(output, str):
         return output
-    return str(output)
+    if isinstance(output, dict) and "output" in output:
+        return str(output["output"])
+    # If output is an iterator, join it
+    try:
+        return "".join(list(output))
+    except TypeError:
+        return str(output)
 
 
 async def run_pdf_restructure(ocr_text: str) -> str:
