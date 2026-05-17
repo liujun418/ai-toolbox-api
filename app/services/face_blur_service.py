@@ -1,6 +1,9 @@
 """Face detection and privacy blur service.
 
-Uses OpenCV Haar cascade for face detection (offline, no API cost).
+Uses Google MediaPipe (BlazeFace) for AI face detection — far more accurate
+than OpenCV Haar cascade, especially for profile/side faces, partial occlusion,
+and varied angles. Runs entirely offline with no API cost.
+
 Supports four blur styles: mosaic, gaussian, pixelate, emoji.
 """
 
@@ -14,37 +17,52 @@ from PIL import Image
 
 logger = logging.getLogger(__name__)
 
-# Load Haar cascade once at module level
-_face_cascade: cv2.CascadeClassifier | None = None
+# MediaPipe Face Detection — lazy init (loads AI model once)
+_mp_face_detection = None
 
 
-def _get_cascade() -> cv2.CascadeClassifier:
-    global _face_cascade
-    if _face_cascade is None:
-        cascade_path = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
-        _face_cascade = cv2.CascadeClassifier(cascade_path)
-    return _face_cascade
+def _get_face_detector():
+    global _mp_face_detection
+    if _mp_face_detection is None:
+        import mediapipe as mp
+        _mp_face_detection = mp.solutions.face_detection.FaceDetection(
+            model_selection=1,  # 0=short-range (≤2m), 1=full-range (≤5m, better for photos)
+            min_detection_confidence=0.5,
+        )
+    return _mp_face_detection
 
 
 def detect_faces(image_bytes: bytes) -> list[dict]:
-    """Detect faces in image, return list of {x, y, w, h}."""
+    """Detect faces in image using MediaPipe AI model.
+
+    Returns list of {x, y, w, h} in pixel coordinates.
+    Much more accurate than Haar cascade: handles profile faces, partial
+    occlusion, varied lighting, and angles that Haar cascade misses.
+    """
     nparr = np.frombuffer(image_bytes, np.uint8)
     img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
     if img is None:
         raise ValueError("Failed to decode image")
 
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    cascade = _get_cascade()
+    h, w = img.shape[:2]
 
-    faces = cascade.detectMultiScale(
-        gray,
-        scaleFactor=1.1,
-        minNeighbors=5,
-        minSize=(30, 30),
-        flags=cv2.CASCADE_SCALE_IMAGE,
-    )
+    # MediaPipe requires RGB
+    rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    detector = _get_face_detector()
+    results = detector.process(rgb)
 
-    return [{"x": int(x), "y": int(y), "w": int(w), "h": int(h)} for (x, y, w, h) in faces]
+    faces = []
+    if results.detections:
+        for det in results.detections:
+            bbox = det.location_data.relative_bounding_box
+            # Convert normalized (0-1) to pixel coordinates
+            x = int(bbox.xmin * w)
+            y = int(bbox.ymin * h)
+            bw = int(bbox.width * w)
+            bh = int(bbox.height * h)
+            faces.append({"x": max(0, x), "y": max(0, y), "w": bw, "h": bh})
+
+    return faces
 
 
 def _apply_blur_region(
