@@ -24,6 +24,7 @@ from app.services.storage import (
     generate_presigned_url,
 )
 from app.services.pdf_service import convert_pdf_to_word, get_pdf_page_count, is_scanned_pdf, convert_scanned_pdf_to_word
+from app.services.face_blur_service import apply_face_blur, count_faces
 from app.services.replicate_service import (
     run_ai_image_generation,
     run_avatar_generation,
@@ -51,6 +52,7 @@ IMAGE_TOOL_TYPES = {
     "avatar-generator",
     "image-upscaler",
     "style-transfer",
+    "face-blur",
 }
 
 ALLOWED_IMAGE_CONTENT_TYPES = {"image/png", "image/jpeg", "image/webp"}
@@ -564,6 +566,54 @@ async def upload_and_process(
             task.output_file_url = generate_presigned_url(output_key, expires_in=3600)
             task.status = TaskStatus.COMPLETED
             task.completed_at = datetime.now(UTC)
+
+        elif tool_type == "face-blur":
+            blur_style = (prompt or "mosaic").lower()
+            if blur_style not in ("mosaic", "gaussian", "pixelate"):
+                blur_style = "mosaic"
+
+            # Parse manual regions if provided
+            manual_regions = None
+            if mask:
+                import json as _json_face
+                mask_bytes = await mask.read()
+                if mask_bytes:
+                    try:
+                        manual_regions = _json_face.loads(mask_bytes.decode("utf-8"))
+                    except Exception:
+                        pass
+
+            # Apply face blur
+            try:
+                result_bytes, face_count, total_regions = await asyncio.to_thread(
+                    apply_face_blur, file_bytes, blur_style, manual_regions
+                )
+
+                if face_count == 0 and not manual_regions:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="No faces detected in this image. Try uploading a clearer photo, or use manual selection to add blur regions.",
+                    )
+
+                # Determine cost: 4 for HD/multi-face (5+ faces), 2 for normal
+                img = Image.open(io_module.BytesIO(file_bytes))
+                w, h_img_size = img.size
+                is_hd = max(w, h_img_size) > 3000
+                is_multi = face_count >= 5
+                actual_cost = 4 if (is_hd or is_multi) else 2
+
+                output_key = generate_download_key(user.id, task_id, "png")
+                await upload_file(result_bytes, output_key, "image/png")
+                task.output_file_url = generate_presigned_url(output_key, expires_in=3600)
+                task.status = TaskStatus.COMPLETED
+                task.completed_at = datetime.now(UTC)
+            except HTTPException:
+                raise
+            except Exception as e:
+                raise HTTPException(
+                    status_code=502,
+                    detail=_friendly_error(str(e), tool_type),
+                )
 
         # Post-process output for image tools
         if tool_type in IMAGE_TOOL_TYPES and task.output_file_url:

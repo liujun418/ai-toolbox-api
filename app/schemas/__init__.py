@@ -119,4 +119,5 @@ CREDIT_COSTS: dict[str, float] = {
     "image-upscaler": 2,
     "style-transfer": 4,
     "text-polish": 3,
+    "face-blur": 2,  # 2 for normal, 4 for HD/multi-face (dynamic in uploads.py)
 }
