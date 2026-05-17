@@ -568,8 +568,16 @@ async def upload_and_process(
             task.completed_at = datetime.now(UTC)
 
         elif tool_type == "face-blur":
-            blur_style = (prompt or "mosaic").lower()
-            if blur_style not in ("mosaic", "gaussian", "pixelate"):
+            # Parse prompt: "style" or "style|emoji_type"
+            raw_prompt = (prompt or "mosaic").lower()
+            blur_style = raw_prompt
+            emoji_type = "smile"
+            auto_only = False
+            if "|" in raw_prompt:
+                parts = raw_prompt.split("|", 1)
+                blur_style = parts[0]
+                emoji_type = parts[1] if len(parts) > 1 else "smile"
+            if blur_style not in ("mosaic", "gaussian", "pixelate", "emoji"):
                 blur_style = "mosaic"
 
             # Parse manual regions if provided
@@ -579,14 +587,19 @@ async def upload_and_process(
                 mask_bytes = await mask.read()
                 if mask_bytes:
                     try:
-                        manual_regions = _json_face.loads(mask_bytes.decode("utf-8"))
+                        parsed = _json_face.loads(mask_bytes.decode("utf-8"))
+                        if isinstance(parsed, dict):
+                            auto_only = parsed.get("auto", False)
+                            manual_regions = parsed.get("regions")
+                        elif isinstance(parsed, list):
+                            manual_regions = parsed if len(parsed) > 0 else None
                     except Exception:
                         pass
 
             # Apply face blur
             try:
                 result_bytes, face_count, total_regions = await asyncio.to_thread(
-                    apply_face_blur, file_bytes, blur_style, manual_regions
+                    apply_face_blur, file_bytes, blur_style, manual_regions, emoji_type, auto_only
                 )
 
                 if face_count == 0 and not manual_regions:

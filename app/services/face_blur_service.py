@@ -1,7 +1,7 @@
 """Face detection and privacy blur service.
 
 Uses OpenCV Haar cascade for face detection (offline, no API cost).
-Supports three blur styles: mosaic, gaussian, pixelate.
+Supports four blur styles: mosaic, gaussian, pixelate, emoji.
 """
 
 import io
@@ -91,6 +91,59 @@ def _apply_blur_region(
                 avg_color = cell.mean(axis=(0, 1)).astype(np.uint8)
                 roi[by : by + bh, bx : bx + bw] = avg_color
 
+EMOJI_OPTIONS = {
+    "smile": "😊",
+    "mask": "😷",
+    "cat": "🐱",
+    "dog": "🐶",
+    "bear": "🐻",
+    "star": "⭐",
+}
+
+
+def _apply_emoji_region(img: np.ndarray, region: dict, emoji_char: str) -> None:
+    """Overlay a cute emoji on a face region using PIL."""
+    x, y, w, h = region["x"], region["y"], region["w"], region["h"]
+    h_img, w_img = img.shape[:2]
+    x = max(0, x)
+    y = max(0, y)
+    w = min(w, w_img - x)
+    h = min(h, h_img - y)
+    if w <= 0 or h <= 0:
+        return
+
+    # Convert ROI to PIL for text rendering
+    roi_bgr = img[y : y + h, x : x + w]
+    roi_rgb = cv2.cvtColor(roi_bgr, cv2.COLOR_BGR2RGB)
+    pil_roi = Image.fromarray(roi_rgb)
+
+    # Draw emoji centered in the region
+    from PIL import ImageDraw, ImageFont
+
+    draw = ImageDraw.Draw(pil_roi)
+    font_size = max(min(w, h) // 2, 20)
+    # Use default font — emoji rendering depends on OS support
+    try:
+        font = ImageFont.truetype("seguiemj.ttf", font_size)  # Windows Segoe UI Emoji
+    except (OSError, IOError):
+        try:
+            font = ImageFont.truetype("/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf", font_size)
+        except (OSError, IOError):
+            font = ImageFont.load_default()
+
+    # Center the emoji
+    bbox = draw.textbbox((0, 0), emoji_char, font=font)
+    tw = bbox[2] - bbox[0]
+    th = bbox[3] - bbox[1]
+    tx = (w - tw) // 2
+    ty = (h - th) // 2
+    draw.text((tx, ty), emoji_char, font=font, embedded_color=True)
+
+    # Convert back to BGR and place in original image
+    result_rgb = np.array(pil_roi)
+    result_bgr = cv2.cvtColor(result_rgb, cv2.COLOR_RGB2BGR)
+    img[y : y + h, x : x + w] = result_bgr
+
 
 def _expand_region(region: dict, factor: float = 0.15) -> dict:
     """Expand a face region slightly to cover the full head."""
@@ -109,12 +162,15 @@ def apply_face_blur(
     image_bytes: bytes,
     blur_style: str = "mosaic",
     manual_regions: list[dict] | None = None,
+    emoji_type: str = "smile",
+    auto_only: bool = False,
 ) -> tuple[bytes, int, int]:
     """Apply face blur to an image.
 
+    auto_only: if True, only use AI-detected faces (manual mode off).
     Returns (processed_image_bytes, face_count, region_count).
     """
-    if blur_style not in ("mosaic", "gaussian", "pixelate"):
+    if blur_style not in ("mosaic", "gaussian", "pixelate", "emoji"):
         blur_style = "mosaic"
 
     nparr = np.frombuffer(image_bytes, np.uint8)
@@ -125,16 +181,21 @@ def apply_face_blur(
     # Detect faces
     auto_regions = detect_faces(image_bytes)
 
-    # Expand face regions to cover full head
-    regions = [_expand_region(r) for r in auto_regions]
+    # Build region list
+    if auto_only:
+        regions = [_expand_region(r) for r in auto_regions]
+    else:
+        regions = [_expand_region(r) for r in auto_regions]
+        if manual_regions:
+            regions.extend(manual_regions)
 
-    # Add manual regions
-    if manual_regions:
-        regions.extend(manual_regions)
-
-    # Apply blur
+    # Apply style
+    emoji_char = EMOJI_OPTIONS.get(emoji_type, "😊")
     for region in regions:
-        _apply_blur_region(img, region, blur_style)
+        if blur_style == "emoji":
+            _apply_emoji_region(img, region, emoji_char)
+        else:
+            _apply_blur_region(img, region, blur_style)
 
     # Encode result as PNG (lossless)
     success, buf = cv2.imencode(".png", img, [cv2.IMWRITE_PNG_COMPRESSION, 3])
