@@ -44,6 +44,48 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/upload", tags=["upload"])
 
+
+@router.post("/detect-faces")
+async def detect_faces_endpoint(
+    file: UploadFile = File(...),
+    user: User = Depends(get_current_user),
+):
+    """Detect faces in an uploaded image. Returns face coordinates.
+    No credits are deducted — this is a pre-processing inspection step.
+    """
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No file provided")
+
+    file_bytes = await file.read()
+    if not file_bytes:
+        raise HTTPException(status_code=400, detail="Empty file uploaded")
+
+    # Validate file size
+    if len(file_bytes) > settings.IMAGE_TOOLS_MAX_FILE_SIZE:
+        limit_mb = settings.IMAGE_TOOLS_MAX_FILE_SIZE // (1024 * 1024)
+        raise HTTPException(status_code=400, detail=f"File too large. Maximum size is {limit_mb}MB.")
+
+    # Validate image format
+    content_type = file.content_type or ""
+    if content_type not in ALLOWED_IMAGE_CONTENT_TYPES:
+        try:
+            Image.open(io_module.BytesIO(file_bytes))
+        except Exception:
+            raise HTTPException(status_code=400, detail="Unsupported file format. Please use PNG, JPG, or WebP.")
+
+    try:
+        faces = await asyncio.to_thread(detect_faces_only, file_bytes)
+        return {"faces": faces, "face_count": len(faces)}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Face detection failed: {str(e)}")
+
+
+def detect_faces_only(image_bytes: bytes) -> list[dict]:
+    """Thin wrapper for standalone face detection (imports cascade internally)."""
+    from app.services.face_blur_service import detect_faces
+    return detect_faces(image_bytes)
+
+
 # Image tools that need preprocessing/postprocessing
 IMAGE_TOOL_TYPES = {
     "ai-image-generator",
@@ -573,7 +615,6 @@ async def upload_and_process(
             raw_prompt = (prompt or "mosaic").lower()
             blur_style = raw_prompt
             emoji_type = "smile"
-            auto_only = False
             if "|" in raw_prompt:
                 parts = raw_prompt.split("|", 1)
                 blur_style = parts[0]
@@ -581,8 +622,9 @@ async def upload_and_process(
             if blur_style not in ("mosaic", "gaussian", "pixelate", "emoji"):
                 blur_style = "mosaic"
 
-            # Parse manual regions if provided
+            # Parse regions from mask JSON
             manual_regions = None
+            auto_regions = None
             if mask:
                 import json as _json_face
                 mask_bytes = await mask.read()
@@ -590,8 +632,11 @@ async def upload_and_process(
                     try:
                         parsed = _json_face.loads(mask_bytes.decode("utf-8"))
                         if isinstance(parsed, dict):
-                            auto_only = parsed.get("auto", False)
-                            manual_regions = parsed.get("regions")
+                            auto_regions = parsed.get("auto_regions")
+                            manual_regions = parsed.get("manual_regions")
+                            # Backward compat: old format {auto, regions}
+                            if auto_regions is None and manual_regions is None:
+                                manual_regions = parsed.get("regions")
                         elif isinstance(parsed, list):
                             manual_regions = parsed if len(parsed) > 0 else None
                     except Exception:
@@ -600,7 +645,8 @@ async def upload_and_process(
             # Apply face blur
             try:
                 result_bytes, face_count, total_regions = await asyncio.to_thread(
-                    apply_face_blur, file_bytes, blur_style, manual_regions, emoji_type, auto_only
+                    apply_face_blur, file_bytes, blur_style, manual_regions, emoji_type, False,
+                    auto_regions,
                 )
 
                 if face_count == 0 and not manual_regions:

@@ -164,10 +164,13 @@ def apply_face_blur(
     manual_regions: list[dict] | None = None,
     emoji_type: str = "smile",
     auto_only: bool = False,
+    auto_regions: list[dict] | None = None,
 ) -> tuple[bytes, int, int]:
     """Apply face blur to an image.
 
-    auto_only: if True, only use AI-detected faces (manual mode off).
+    auto_regions: pre-detected face regions from client. If None, detect on server.
+    manual_regions: user-drawn supplementary regions.
+    auto_only: deprecated legacy flag (ignored when auto_regions is provided).
     Returns (processed_image_bytes, face_count, region_count).
     """
     if blur_style not in ("mosaic", "gaussian", "pixelate", "emoji"):
@@ -178,16 +181,17 @@ def apply_face_blur(
     if img is None:
         raise ValueError("Failed to decode image")
 
-    # Detect faces
-    auto_regions = detect_faces(image_bytes)
-
-    # Build region list
-    if auto_only:
+    # Use client-provided regions or detect on server
+    if auto_regions is not None:
         regions = [_expand_region(r) for r in auto_regions]
+        face_count = len(auto_regions)
     else:
-        regions = [_expand_region(r) for r in auto_regions]
-        if manual_regions:
-            regions.extend(manual_regions)
+        detected = detect_faces(image_bytes)
+        regions = [_expand_region(r) for r in detected]
+        face_count = len(detected)
+
+    if manual_regions:
+        regions.extend(manual_regions)
 
     # Apply style
     emoji_char = EMOJI_OPTIONS.get(emoji_type, "😊")
