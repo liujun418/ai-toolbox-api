@@ -564,18 +564,18 @@ async def run_face_detection(image_url: str) -> list[dict]:
 TTS_MODEL = "minimax/speech-2.6-turbo"
 
 TTS_VOICE_MAP: dict[str, str] = {
-    "male": "Deep_Voice_Man",
-    "female": "Calm_Woman",
-    "child": "BritishChild_male_1_v1",
+    "male": "English_Gentle-voiced_man",
+    "female": "English_CalmWoman",
+    "child": "English_Strong-WilledBoy",
     "cute": "English_Cute_Girl",
-    "serious": "Determined_Man",
-    "formal": "English_Explanatory_Man",
+    "serious": "English_Deep-VoicedGentleman",
+    "formal": "English_MatureBoss",
 }
 
 
 async def run_tts(text: str, voice_category: str = "female") -> bytes:
     """Convert text to speech using MiniMax Speech 2.6 Turbo. Returns MP3 audio bytes."""
-    voice = TTS_VOICE_MAP.get(voice_category, "Calm_Woman")
+    voice = TTS_VOICE_MAP.get(voice_category, "English_CalmWoman")
 
     async def _call():
         return await _run_model(
