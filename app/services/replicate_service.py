@@ -632,18 +632,19 @@ async def run_image_description(image_url: str, prompt: str = "") -> str:
 
 # ── B&W Colorizer ──────────────────────────────────────────────────
 
-COLORIZER_MODEL = "arielreplicate/deoldify_image"
-
-
 async def run_colorizer(image_url: str) -> str:
-    """Colorize a black and white photo using DeOldify. Returns output URL."""
+    """Colorize a black & white photo using SDXL img2img with a colorization prompt."""
     async def _call():
         return await _run_model(
-            COLORIZER_MODEL,
+            "stability-ai/sdxl:7762fd07cf82c948538e41f63f77d685e02b063e37e496e96eefd46c929f9bdc",
             input={
-                "input_image": image_url,
-                "model_name": "Artistic",
-                "render_factor": 35,
+                "image": image_url,
+                "prompt": "colorized version of this black and white photograph, natural realistic colors, vibrant skin tones, lifelike color palette, photorealistic, 8k, highly detailed",
+                "negative_prompt": "black and white, monochrome, grayscale, desaturated, sepia, faded, washed out colors, oversaturated, cartoon, painting, illustration",
+                "prompt_strength": 0.7,
+                "num_inference_steps": 30,
+                "guidance_scale": 7.5,
+                "num_outputs": 1,
             },
         )
 
