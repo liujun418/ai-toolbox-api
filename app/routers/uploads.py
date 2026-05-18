@@ -232,10 +232,8 @@ async def upload_and_process(
         if not prompt or not prompt.strip():
             raise HTTPException(status_code=400, detail="Please provide a text description of the image you want to generate.")
         file_bytes = await file.read() if file else b""
-    elif tool_type == "text-to-speech":
-        # Text-to-speech: no file needed, text comes via prompt
-        if not prompt or not prompt.strip():
-            raise HTTPException(status_code=400, detail="Please enter text to convert to speech.")
+    elif tool_type in TEXT_TOOL_TYPES:
+        # Text tools: no file needed, text comes via prompt
         file_bytes = b""
     else:
         if file is None:
