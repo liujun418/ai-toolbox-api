@@ -11,11 +11,21 @@ import io
 import logging
 import math
 
-import cv2
 import numpy as np
 from PIL import Image
 
 logger = logging.getLogger(__name__)
+
+# Lazy import — cv2 needs system libs (libxcb etc.) that may not be available at startup
+_cv2 = None
+
+
+def _get_cv2():
+    global _cv2
+    if _cv2 is None:
+        import cv2 as _cv2_module
+        _cv2 = _cv2_module
+    return _cv2
 
 # MediaPipe Face Detection — lazy init (loads AI model once)
 _mp_face_detection = None
@@ -40,14 +50,14 @@ def detect_faces(image_bytes: bytes) -> list[dict]:
     occlusion, varied lighting, and angles that Haar cascade misses.
     """
     nparr = np.frombuffer(image_bytes, np.uint8)
-    img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+    img = _get_cv2().imdecode(nparr, _get_cv2().IMREAD_COLOR)
     if img is None:
         raise ValueError("Failed to decode image")
 
     h, w = img.shape[:2]
 
     # MediaPipe requires RGB
-    rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    rgb = _get_cv2().cvtColor(img, _get_cv2().COLOR_BGR2RGB)
     detector = _get_face_detector()
     results = detector.process(rgb)
 
@@ -88,15 +98,15 @@ def _apply_blur_region(
     if style == "mosaic":
         # Pixelate: downsample then upsample
         block = max(4, base_block_size)
-        small = cv2.resize(roi, (max(1, w // block), max(1, h // block)), interpolation=cv2.INTER_LINEAR)
-        roi[:] = cv2.resize(small, (w, h), interpolation=cv2.INTER_NEAREST)
+        small = _get_cv2().resize(roi, (max(1, w // block), max(1, h // block)), interpolation=_get_cv2().INTER_LINEAR)
+        roi[:] = _get_cv2().resize(small, (w, h), interpolation=_get_cv2().INTER_NEAREST)
 
     elif style == "gaussian":
         # Strong gaussian blur
         ksize = max(15, min(w, h) // 4)
         if ksize % 2 == 0:
             ksize += 1
-        roi[:] = cv2.GaussianBlur(roi, (ksize, ksize), 30)
+        roi[:] = _get_cv2().GaussianBlur(roi, (ksize, ksize), 30)
 
     elif style == "pixelate":
         # Cell-based pixelation with larger blocks
@@ -132,7 +142,7 @@ def _apply_emoji_region(img: np.ndarray, region: dict, emoji_char: str) -> None:
 
     # Convert ROI to PIL for text rendering
     roi_bgr = img[y : y + h, x : x + w]
-    roi_rgb = cv2.cvtColor(roi_bgr, cv2.COLOR_BGR2RGB)
+    roi_rgb = _get_cv2().cvtColor(roi_bgr, _get_cv2().COLOR_BGR2RGB)
     pil_roi = Image.fromarray(roi_rgb)
 
     # Draw emoji centered in the region
@@ -159,7 +169,7 @@ def _apply_emoji_region(img: np.ndarray, region: dict, emoji_char: str) -> None:
 
     # Convert back to BGR and place in original image
     result_rgb = np.array(pil_roi)
-    result_bgr = cv2.cvtColor(result_rgb, cv2.COLOR_RGB2BGR)
+    result_bgr = _get_cv2().cvtColor(result_rgb, _get_cv2().COLOR_RGB2BGR)
     img[y : y + h, x : x + w] = result_bgr
 
 
@@ -195,7 +205,7 @@ def apply_face_blur(
         blur_style = "mosaic"
 
     nparr = np.frombuffer(image_bytes, np.uint8)
-    img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+    img = _get_cv2().imdecode(nparr, _get_cv2().IMREAD_COLOR)
     if img is None:
         raise ValueError("Failed to decode image")
 
@@ -220,7 +230,7 @@ def apply_face_blur(
             _apply_blur_region(img, region, blur_style)
 
     # Encode result as PNG (lossless)
-    success, buf = cv2.imencode(".png", img, [cv2.IMWRITE_PNG_COMPRESSION, 3])
+    success, buf = _get_cv2().imencode(".png", img, [_get_cv2().IMWRITE_PNG_COMPRESSION, 3])
     if not success:
         raise RuntimeError("Failed to encode output image")
 

@@ -25,7 +25,7 @@ from app.services.storage import (
     generate_presigned_url,
 )
 from app.services.pdf_service import convert_pdf_to_word, get_pdf_page_count, is_scanned_pdf, convert_scanned_pdf_to_word
-from app.services.face_blur_service import apply_face_blur, count_faces
+# face_blur_service imported lazily to avoid cv2 import at startup (requires system libs)
 from app.services.replicate_service import (
     run_ai_image_generation,
     run_avatar_generation,
@@ -80,8 +80,8 @@ async def detect_faces_endpoint(
 
 
 def detect_faces_only(image_bytes: bytes) -> list[dict]:
-    """Thin wrapper for standalone face detection (imports cascade internally)."""
-    from app.services.face_blur_service import detect_faces
+    """Thin wrapper for standalone face detection (imports lazily)."""
+    from app.services.face_blur_service import detect_faces  # noqa: F811
     return detect_faces(image_bytes)
 
 
@@ -642,6 +642,7 @@ async def upload_and_process(
                         pass
 
             # Apply face blur
+            from app.services.face_blur_service import apply_face_blur  # noqa: F811
             try:
                 result_bytes, face_count, total_regions = await asyncio.to_thread(
                     apply_face_blur, file_bytes, blur_style, manual_regions, emoji_type, False,
