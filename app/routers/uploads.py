@@ -36,6 +36,7 @@ from app.services.replicate_service import (
     run_pdf_restructure,
     run_photo_restoration,
     run_style_transfer,
+    run_article_generation,
     run_text_polish,
     run_watermark_removal,
     auto_detect_watermark,
@@ -114,7 +115,7 @@ IMAGE_TOOL_TYPES = {
 
 ALLOWED_IMAGE_CONTENT_TYPES = {"image/png", "image/jpeg", "image/webp"}
 
-TEXT_TOOL_TYPES = {"text-polish"}
+TEXT_TOOL_TYPES = {"text-polish", "article-generator"}
 
 
 def _friendly_error(message: str, tool_type: str = "") -> str:
@@ -143,6 +144,57 @@ def _friendly_error(message: str, tool_type: str = "") -> str:
                "The input is too long. Try reducing the size."
     # Default: return the raw error so we can diagnose real issues
     return message if len(message) < 300 else message[:300] + "..."
+
+
+@router.post("/public/pdf-to-word-demo")
+async def pdf_to_word_demo(
+    file: UploadFile = File(...),
+):
+    """Public PDF to Word demo — no auth required. Limited to 3 pages."""
+    if not file or not file.filename:
+        raise HTTPException(status_code=400, detail="No file provided")
+    file_bytes = await file.read()
+    if not file_bytes:
+        raise HTTPException(status_code=400, detail="Empty file")
+    if len(file_bytes) > 20 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="File too large. Max 20MB.")
+
+    try:
+        page_count = await get_pdf_page_count(file_bytes)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid PDF file")
+
+    if page_count > 3:
+        import fitz
+        doc = fitz.open(stream=file_bytes, filetype="pdf")
+        new_doc = fitz.open()
+        for i in range(3):
+            new_doc.insert_pdf(doc, from_page=i, to_page=i)
+        file_bytes = new_doc.tobytes()
+        new_doc.close()
+        doc.close()
+        limited = True
+    else:
+        limited = False
+
+    try:
+        docx_bytes = await convert_pdf_to_word(file_bytes, file.filename or "document.pdf")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    output_key = f"demo-output/{uuid.uuid4().hex}.docx"
+    await upload_file(
+        docx_bytes, output_key,
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    )
+    output_url = generate_presigned_url(output_key, expires_in=1800)
+
+    return {
+        "output_url": output_url,
+        "page_count": min(page_count, 3),
+        "limited": limited,
+        "message": "Demo complete. Sign up for full access (no page limit).",
+    }
 
 
 @router.post("/{tool_type}", response_model=TaskResponse)
@@ -425,6 +477,31 @@ async def upload_and_process(
                 text_content = file_bytes.decode("utf-8", errors="replace")
 
             output = await run_text_polish(text_content, mode)
+            result_content = output
+            output_key = generate_download_key(user.id, task_id, "txt")
+            await upload_file(output.encode("utf-8"), output_key, "text/plain")
+            task.output_file_url = generate_presigned_url(output_key, expires_in=3600)
+            task.status = TaskStatus.COMPLETED
+            task.completed_at = datetime.now(UTC)
+
+        elif tool_type == "article-generator":
+            topic = ""
+            keywords = ""
+            tone = ""
+            if prompt:
+                for part in prompt.split("|"):
+                    part = part.strip()
+                    if part.lower().startswith("topic:"):
+                        topic = part[6:].strip()
+                    elif part.lower().startswith("keywords:"):
+                        keywords = part[9:].strip()
+                    elif part.lower().startswith("tone:"):
+                        tone = part[5:].strip()
+
+            if not topic:
+                raise HTTPException(status_code=400, detail="Topic is required for article generation")
+
+            output = await run_article_generation(topic, keywords, tone)
             result_content = output
             output_key = generate_download_key(user.id, task_id, "txt")
             await upload_file(output.encode("utf-8"), output_key, "text/plain")

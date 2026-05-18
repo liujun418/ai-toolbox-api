@@ -28,6 +28,12 @@ def _ensure_db_columns():
         "reset_token": "VARCHAR(255)",
         "reset_token_expires": "TIMESTAMP WITH TIME ZONE",
         "role": "VARCHAR(20) DEFAULT 'user'",
+        "subscription_tier": "VARCHAR(50)",
+        "subscription_end_date": "TIMESTAMP WITH TIME ZONE",
+        "last_checkin": "TIMESTAMP WITH TIME ZONE",
+        "checkin_streak": "INTEGER DEFAULT 0",
+        "referral_code": "VARCHAR(20)",
+        "referred_by": "VARCHAR(36)",
     }
     with engine.begin() as conn:
         for col_name, col_type in needed.items():

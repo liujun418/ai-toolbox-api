@@ -557,3 +557,58 @@ async def run_face_detection(image_url: str) -> list[dict]:
             })
     logger.info("Face detection: found %d faces in image", len(faces))
     return faces
+
+
+# ── Article Generator ──────────────────────────────────────────────
+
+async def run_article_generation(topic: str, keywords: str = "", tone: str = "") -> str:
+    """Generate a structured article using Llama 3 70B."""
+    lang = _detect_language(topic + " " + keywords)
+
+    if lang == "ar":
+        instruction = (
+            f"اكتب مقالة متكاملة باللغة العربية حول: {topic}\n\n"
+            f"{'الكلمات المفتاحية: ' + keywords if keywords else ''}\n"
+            f"{'النبرة: ' + tone if tone else ''}\n\n"
+            "يجب أن تتضمن المقالة:\n"
+            "1. عنوان جذاب\n2. مقدمة مشوقة\n3. 3-5 أقسام رئيسية (كل قسم بعنوان فرعي)\n4. خاتمة\n\n"
+            "اكتب ككاتب محترف، وليس كذكاء اصطناعي. قدم محتوى قيماً وعملياً."
+        )
+    elif lang == "es":
+        instruction = (
+            f"Escribe un artículo completo en español sobre: {topic}\n\n"
+            f"{'Palabras clave: ' + keywords if keywords else ''}\n"
+            f"{'Tono: ' + tone if tone else ''}\n\n"
+            "El artículo debe incluir:\n"
+            "1. Título atractivo\n2. Introducción convincente\n3. 3-5 secciones principales (subtituladas)\n4. Conclusión\n\n"
+            "Escribe como un escritor profesional, no como una IA. Proporciona contenido valioso."
+        )
+    else:
+        instruction = (
+            f"Write a complete, well-structured article about: {topic}\n\n"
+            f"{'Keywords: ' + keywords if keywords else ''}\n"
+            f"{'Tone: ' + tone if tone else ''}\n\n"
+            "The article must include:\n"
+            "1. An engaging title (as a heading)\n"
+            "2. A compelling introduction\n"
+            "3. 3-5 main sections (each with a subheading)\n"
+            "4. A conclusion with key takeaways\n\n"
+            "Write as a professional human writer, not an AI. "
+            "Provide valuable, actionable content."
+        )
+
+    async def _call():
+        client = _get_client()
+        return await asyncio.to_thread(
+            client.run,
+            "meta/meta-llama-3-70b-instruct:fbfb20b472b2f3bdd101412a9f70a0ed4fc0ced78a77ff00970ee7a2383c575d",
+            input={
+                "system_prompt": instruction,
+                "prompt": "Write the article now.",
+                "max_tokens": 4096,
+                "temperature": 0.7,
+            },
+        )
+
+    output = await retry_with_backoff(_call)
+    return "".join(list(output)).strip()

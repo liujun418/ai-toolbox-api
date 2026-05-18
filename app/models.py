@@ -36,6 +36,16 @@ class User(Base):
     reset_token_expires: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    subscription_tier: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    subscription_end_date: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    last_checkin: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    checkin_streak: Mapped[int] = mapped_column(Integer, default=0)
+    referral_code: Mapped[str | None] = mapped_column(String(20), unique=True, nullable=True)
+    referred_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )

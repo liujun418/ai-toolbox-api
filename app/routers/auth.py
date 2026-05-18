@@ -1,3 +1,4 @@
+import hashlib
 import uuid
 from datetime import datetime, UTC, timedelta
 
@@ -11,7 +12,7 @@ from app.schemas import (
     UserResponse, LoginRequest, RegisterRequest, TokenResponse,
     ForgotPasswordRequest, ResetPasswordRequest, ChangePasswordRequest,
     UpdateProfileRequest, TaskListResponse, TransactionListResponse,
-    TaskResponse, TransactionResponse,
+    TaskResponse, TransactionResponse, ReferralCodeResponse, ApplyReferralRequest,
 )
 from app.services.auth import (
     hash_password, verify_password, create_access_token, decode_access_token,
@@ -43,6 +44,8 @@ def register(req: RegisterRequest, db: Session = Depends(get_db)):
         raise HTTPException(status_code=409, detail="Email already registered")
 
     token = str(uuid.uuid4())
+    referral_code = hashlib.sha256(str(uuid.uuid4()).encode()).hexdigest()[:8]
+
     user = User(
         id=str(uuid.uuid4()),
         email=req.email,
@@ -50,7 +53,21 @@ def register(req: RegisterRequest, db: Session = Depends(get_db)):
         hashed_password=hash_password(req.password),
         role=UserRole.USER,
         verification_token=token,
+        referral_code=referral_code,
     )
+
+    # Handle referral
+    if req.referral_code:
+        referrer = db.query(User).filter(User.referral_code == req.referral_code).first()
+        if referrer and referrer.id != user.id:
+            user.referred_by = referrer.id
+            user.credits += 3.0
+            referrer.credits += 3.0
+            db.add(Transaction(id=str(uuid.uuid4()), user_id=referrer.id, type="purchase",
+                amount=3.0, description=f"Referral bonus for {user.email}", created_at=datetime.now(UTC)))
+            db.add(Transaction(id=str(uuid.uuid4()), user_id=user.id, type="purchase",
+                amount=3.0, description="Welcome referral bonus", created_at=datetime.now(UTC)))
+
     db.add(user)
     db.commit()
     db.refresh(user)
@@ -59,7 +76,7 @@ def register(req: RegisterRequest, db: Session = Depends(get_db)):
     try:
         send_verification_email(user.email, token)
     except Exception:
-        pass  # TODO: log in production
+        pass
 
     access_token = create_access_token(user.id)
     return TokenResponse(access_token=access_token, user=UserResponse.model_validate(user))
@@ -225,3 +242,109 @@ def get_my_transactions(
         transactions=[TransactionResponse.model_validate(t) for t in transactions],
         total=total,
     )
+
+
+# ── Daily Check-in ────────────────────────────────────────
+
+@router.get("/checkin-status")
+def checkin_status(user: User = Depends(get_current_user)):
+    today = datetime.now(UTC).date()
+    checked_in_today = user.last_checkin is not None and user.last_checkin.date() == today
+    return {
+        "streak": user.checkin_streak,
+        "checked_in_today": checked_in_today,
+        "last_checkin": user.last_checkin.isoformat() if user.last_checkin else None,
+    }
+
+
+@router.post("/daily-checkin")
+def daily_checkin(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    today = datetime.now(UTC).date()
+
+    if user.last_checkin and user.last_checkin.date() == today:
+        raise HTTPException(status_code=400, detail="Already checked in today")
+
+    yesterday = today - timedelta(days=1)
+    if user.last_checkin and user.last_checkin.date() == yesterday:
+        user.checkin_streak += 1
+    else:
+        user.checkin_streak = 1
+
+    reward = 1.0
+    bonus = 0
+    if user.checkin_streak == 7:
+        bonus = 3
+        reward = 4.0
+        user.checkin_streak = 0
+
+    user.credits += reward
+    user.last_checkin = datetime.now(UTC)
+
+    tx = Transaction(
+        id=str(uuid.uuid4()),
+        user_id=user.id,
+        type="purchase",
+        amount=reward,
+        description=f"Daily check-in day {7 if bonus else user.checkin_streak}{' (+3 bonus!)' if bonus else ''}",
+        created_at=datetime.now(UTC),
+    )
+    db.add(tx)
+    db.commit()
+    db.refresh(user)
+
+    return {
+        "message": f"Day {7 if bonus else user.checkin_streak} check-in!",
+        "credits_earned": reward,
+        "bonus": bonus,
+        "streak": user.checkin_streak,
+        "total_credits": user.credits,
+    }
+
+
+# ── Referral ──────────────────────────────────────────────
+
+@router.get("/referral-code", response_model=ReferralCodeResponse)
+def get_referral_code(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    from app.config import settings
+    total = db.query(User).filter(User.referred_by == user.id).count()
+    return ReferralCodeResponse(
+        referral_code=user.referral_code or "",
+        share_url=f"{settings.FRONTEND_URL}/signup?ref={user.referral_code}",
+        total_referrals=total,
+        credits_earned=total * 3.0,
+    )
+
+
+@router.post("/apply-referral")
+def apply_referral(
+    req: ApplyReferralRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if user.referred_by:
+        raise HTTPException(status_code=400, detail="You have already been referred")
+
+    referrer = db.query(User).filter(User.referral_code == req.code).first()
+    if not referrer:
+        raise HTTPException(status_code=404, detail="Invalid referral code")
+    if referrer.id == user.id:
+        raise HTTPException(status_code=400, detail="Cannot refer yourself")
+
+    user.referred_by = referrer.id
+    user.credits += 3.0
+    referrer.credits += 3.0
+
+    db.add(Transaction(id=str(uuid.uuid4()), user_id=user.id, type="purchase",
+        amount=3.0, description="Referral bonus", created_at=datetime.now(UTC)))
+    db.add(Transaction(id=str(uuid.uuid4()), user_id=referrer.id, type="purchase",
+        amount=3.0, description=f"Referred {user.email}", created_at=datetime.now(UTC)))
+    db.commit()
+    db.refresh(user)
+
+    return {"message": "Referral applied", "credits_earned": 3, "total_credits": user.credits}

@@ -35,10 +35,22 @@ class UserResponse(BaseModel):
     role: str
     credits: float
     email_verified: bool = False
+    referral_code: str | None = None
     created_at: datetime
 
     class Config:
         from_attributes = True
+
+
+class ReferralCodeResponse(BaseModel):
+    referral_code: str
+    share_url: str
+    total_referrals: int
+    credits_earned: float
+
+
+class ApplyReferralRequest(BaseModel):
+    code: str
 
 
 # --- Schemas for Transactions ---
@@ -66,6 +78,7 @@ class RegisterRequest(BaseModel):
     email: str
     password: str = Field(..., min_length=6)
     name: str | None = None
+    referral_code: str | None = None
 
 
 class LoginRequest(BaseModel):
@@ -120,4 +133,5 @@ CREDIT_COSTS: dict[str, float] = {
     "style-transfer": 4,
     "text-polish": 3,
     "face-blur": 2,  # 2 for normal, 4 for HD/multi-face (dynamic in uploads.py)
+    "article-generator": 3,
 }
