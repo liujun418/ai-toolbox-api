@@ -597,11 +597,8 @@ async def run_tts(text: str, language: str = "en") -> bytes:
 
 # ── Image Description ───────────────────────────────────────────────
 
-IMAGE_DESC_MODEL = "yorickvp/llava-13b:e272157381e2a3bf12df3a8edd1f38d1dbd736bbb329ef07c4c9b93ae3ce8c9f"
-
-
 async def run_image_description(image_url: str, prompt: str = "") -> str:
-    """Generate a detailed description of an image using LLaVA-13b."""
+    """Generate a detailed description of an image using Meta Llama 3.2 Vision."""
     system_prompt = (
         "You are an expert image describer. Analyze the image carefully and generate "
         "1) a concise single-sentence caption for alt text / SEO, and "
@@ -616,7 +613,7 @@ async def run_image_description(image_url: str, prompt: str = "") -> str:
         client = _get_client()
         return await asyncio.to_thread(
             client.run,
-            IMAGE_DESC_MODEL,
+            "meta/meta-llama-3.2-11b-vision-instruct",
             input={
                 "image": image_url,
                 "prompt": user_prompt,
