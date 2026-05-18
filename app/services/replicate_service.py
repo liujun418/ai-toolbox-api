@@ -564,12 +564,12 @@ async def run_face_detection(image_url: str) -> list[dict]:
 TTS_MODEL = "minimax/speech-2.6-turbo"
 
 TTS_VOICE_MAP: dict[str, str] = {
-    "male": "English_Gentle-voiced_man",
-    "female": "English_CalmWoman",
-    "child": "English_Strong-WilledBoy",
-    "cute": "English_Cute_Girl",
-    "serious": "English_Deep-VoicedGentleman",
-    "formal": "English_MatureBoss",
+    "male": "male-qn-qingse",
+    "female": "female-shaonv",
+    "child": "presenter_male",
+    "cute": "female-tianmei",
+    "serious": "male-qn-jingying",
+    "formal": "presenter_female",
 }
 
 
