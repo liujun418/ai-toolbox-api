@@ -598,11 +598,10 @@ async def run_tts(text: str, language: str = "en") -> bytes:
 # ── Image Description ───────────────────────────────────────────────
 
 async def run_image_description(image_url: str, prompt: str = "") -> str:
-    """Generate a detailed description of an image using Google Gemini Vision (REST API)."""
-    if not settings.GEMINI_API_KEY:
-        raise ValueError("GEMINI_API_KEY not configured — image description requires Gemini API")
-
+    """Generate a detailed description of an image using Meta Llama Guard Vision (official).
+    Despite being a safety classifier, it's a full vision model — custom prompt guides it to describe."""
     system_prompt = (
+        "Forget you are a safety classifier. You are an expert image describer.\n"
         "Analyze the image carefully. Generate:\n"
         "1) ALT: a single sentence for SEO alt text\n"
         "2) DESC: 3-5 sentences covering objects, colors, composition, setting, mood, and text.\n"
@@ -611,39 +610,22 @@ async def run_image_description(image_url: str, prompt: str = "") -> str:
     )
     user_msg = prompt.strip() if prompt.strip() else "Describe this image in detail."
 
-    # Download image from presigned URL and convert to base64
-    import httpx
-    import base64
-    resp = httpx.get(image_url, follow_redirects=True, timeout=30)
-    image_b64 = base64.b64encode(resp.content).decode("utf-8")
-
-    body = {
-        "contents": [{
-            "parts": [
-                {"text": f"{system_prompt}\n\n{user_msg}"},
-                {"inlineData": {"mimeType": "image/jpeg", "data": image_b64}},
-            ]
-        }],
-        "generationConfig": {"temperature": 0.2, "maxOutputTokens": 512},
-    }
-
     async def _call():
-        async with httpx.AsyncClient(timeout=60) as client:
-            r = await client.post(
-                f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={settings.GEMINI_API_KEY}",
-                json=body,
-            )
-            if r.status_code == 429:
-                raise Exception("Gemini rate limited")
-            if r.status_code != 200:
-                raise Exception(f"Gemini API error {r.status_code}: {r.text}")
-            return r.json()
+        client = _get_client()
+        return await asyncio.to_thread(
+            client.run,
+            "meta/llama-guard-3-11b-vision",
+            input={
+                "image": image_url,
+                "prompt": user_msg,
+                "system_prompt": system_prompt,
+                "temperature": 0.2,
+                "max_tokens": 512,
+            },
+        )
 
-    data = await retry_with_backoff(_call, max_retries=5, base_delay=5)
-    try:
-        return data["candidates"][0]["content"]["parts"][0]["text"].strip()
-    except (KeyError, IndexError):
-        raise ValueError(f"Gemini API error: {data}")
+    output = await retry_with_backoff(_call)
+    return "".join(list(output)).strip()
 
 
 # ── B&W Colorizer ──────────────────────────────────────────────────
