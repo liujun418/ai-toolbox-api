@@ -651,29 +651,19 @@ async def run_colorizer(image_url: str) -> str:
 
 # ── Object Remover ──────────────────────────────────────────────────
 
-OBJECT_REMOVER_MODEL = "zf-kbot/object-remover-20251030:77061e4f2a4c96c67f2c750839b4025f4a2c44d38e279cd087ac484fe8ce16cd"
-
-
 async def run_object_removal(image_url: str, mask_url: str) -> str:
-    """Remove unwanted objects from an image using inpainting. Returns output URL."""
+    """Remove unwanted objects using BRIA Eraser inpainting (same model as watermark remover).
+    Takes image + user-painted mask, returns inpainted image URL."""
+    tpl = TOOL_PROMPTS["watermark-remover"]
+    inp = {"image": image_url, "mask": mask_url, **tpl.default_params}
+
     async def _call():
-        return await _run_model(
-            OBJECT_REMOVER_MODEL,
-            input={
-                "image": image_url,
-                "mask": mask_url,
-                "task": "object_removal",
-                "apply_object_removal_lora": "1",
-                "num_inference_steps": 10,
-                "guidance_scale": 1.4,
-                "true_cfg": 4,
-            },
-        )
+        return await _run_model(tpl.model, input=inp)
 
     output = await retry_with_backoff(_call)
     if isinstance(output, list):
         if not output:
-            raise ValueError("Object remover returned empty output")
+            raise ValueError("BRIA Eraser returned empty output")
         return str(output[0])
     return str(output)
 
