@@ -633,12 +633,16 @@ async def run_image_description(image_url: str, prompt: str = "") -> str:
 # ── B&W Colorizer ──────────────────────────────────────────────────
 
 async def run_colorizer(image_url: str) -> str:
-    """Colorize a black & white photo using DDColor (Alibaba DAMO Academy, ICCV 2023).
-    It's the #1 dedicated colorization model on Replicate — ~1s, ~$0.001/run."""
+    """Colorize a black & white photo using DeOldify (cneural/colorize).
+    Well-established model with Artistic/Stable modes, render_factor control."""
     async def _call():
         return await _run_model(
-            "piddnad/ddcolor:222244b185b9a2e1fa1532cd6fc2bb7b67b5c8f32267f85c68e54f5deed23930",
-            input={"image": image_url},
+            "cneural/colorize:1297e6b7ad8b3aa7f0f7e5c3826212b04dd83001cc2df6c4db522c602a73cffa",
+            input={
+                "input_image": image_url,
+                "model_name": "Artistic",
+                "render_factor": 35,
+            },
         )
 
     output = await retry_with_backoff(_call)
