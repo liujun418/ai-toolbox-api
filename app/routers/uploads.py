@@ -547,7 +547,11 @@ async def upload_and_process(
             task.completed_at = datetime.now(UTC)
 
         elif tool_type == "colorizer":
-            output_url = await run_colorizer(image_url)
+            color_style = (style or "natural").lower()
+            if color_style not in ("vibrant", "portrait", "natural", "classic"):
+                color_style = "natural"
+            user_desc = (prompt or "").strip()
+            output_url = await run_colorizer(image_url, color_style, user_desc)
             task.output_file_url = output_url
             task.status = TaskStatus.COMPLETED
             task.completed_at = datetime.now(UTC)

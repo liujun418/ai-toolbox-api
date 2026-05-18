@@ -632,16 +632,32 @@ async def run_image_description(image_url: str, prompt: str = "") -> str:
 
 # ── B&W Colorizer ──────────────────────────────────────────────────
 
-async def run_colorizer(image_url: str) -> str:
-    """Colorize a black & white photo using DeOldify (cneural/colorize).
-    Well-established model with Artistic/Stable modes, render_factor control."""
+COLORIZER_STYLES: dict[str, str] = {
+    "vibrant": "rich saturated colors, vivid and bold hues, striking color palette",
+    "portrait": "natural skin tones, soft warm lighting, true-to-life complexion",
+    "natural": "realistic natural colors, balanced tones, photorealistic color",
+    "classic": "vintage film colors, muted warm tones, nostalgic feel",
+}
+
+
+async def run_colorizer(image_url: str, style: str = "natural", user_prompt: str = "") -> str:
+    """Colorize a black & white photo using FLUX Kontext Pro with style + optional user prompt."""
+    style_guide = COLORIZER_STYLES.get(style, COLORIZER_STYLES["natural"])
+    base_prompt = f"Colorize this black and white photo with {style_guide}. Preserve all original details, composition, faces, and textures exactly as they are. Do not change any shapes, objects, or people."
+    if user_prompt:
+        full_prompt = f"{base_prompt} Additional guidance: {user_prompt}"
+    else:
+        full_prompt = base_prompt
+
     async def _call():
         return await _run_model(
-            "cneural/colorize:1297e6b7ad8b3aa7f0f7e5c3826212b04dd83001cc2df6c4db522c602a73cffa",
+            "black-forest-labs/flux-kontext-pro",
             input={
                 "input_image": image_url,
-                "model_name": "Artistic",
-                "render_factor": 35,
+                "prompt": full_prompt,
+                "aspect_ratio": "match_input_image",
+                "output_format": "png",
+                "safety_tolerance": 2,
             },
         )
 
