@@ -630,7 +630,7 @@ async def run_image_description(image_url: str, prompt: str = "") -> str:
     async def _call():
         async with httpx.AsyncClient(timeout=60) as client:
             r = await client.post(
-                f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={settings.GEMINI_API_KEY}",
+                f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={settings.GEMINI_API_KEY}",
                 json=body,
             )
             if r.status_code == 429:
