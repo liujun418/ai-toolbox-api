@@ -44,7 +44,7 @@ from app.services.replicate_service import (
     run_tts,
     run_watermark_removal,
     auto_detect_watermark,
-    TTS_SPEAKER_MAP,
+    TTS_VOICE_MAP,
 )
 
 logger = logging.getLogger(__name__)
@@ -525,11 +525,11 @@ async def upload_and_process(
             if not text:
                 raise HTTPException(status_code=400, detail="Please enter text to convert to speech.")
 
-            language = (style or "en").lower()
-            if language not in TTS_SPEAKER_MAP and language not in ("ar", "nl", "cs", "hu"):
-                language = "en"
+            voice_category = (style or "female").lower()
+            if voice_category not in TTS_VOICE_MAP:
+                voice_category = "female"
 
-            audio_bytes = await run_tts(text, language)
+            audio_bytes = await run_tts(text, voice_category)
             output_key = generate_download_key(user.id, task_id, "mp3")
             await upload_file(audio_bytes, output_key, "audio/mpeg")
             task.output_file_url = generate_presigned_url(output_key, expires_in=3600)

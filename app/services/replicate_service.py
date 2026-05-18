@@ -563,23 +563,19 @@ async def run_face_detection(image_url: str) -> list[dict]:
 
 TTS_MODEL = "minimax/speech-2.6-turbo"
 
-# Supported language codes for MiniMax Speech 2.6 (40+ languages)
-TTS_SPEAKER_MAP: dict[str, str] = {
-    "en": "male-qn-qingse", "es": "female-shaonv",
-    "ar": "male-qn-qingse", "fr": "female-shaonv",
-    "de": "male-qn-qingse", "it": "female-shaonv",
-    "ja": "female-shaonv", "zh": "male-qn-qingse",
-    "ko": "female-shaonv", "pt": "male-qn-qingse",
-    "ru": "male-qn-qingse", "tr": "female-shaonv",
-    "pl": "male-qn-qingse", "nl": "female-shaonv",
-    "cs": "male-qn-qingse", "hi": "female-shaonv",
-    "hu": "male-qn-qingse",
+TTS_VOICE_MAP: dict[str, str] = {
+    "male": "Deep_Voice_Man",
+    "female": "Calm_Woman",
+    "child": "BritishChild_male_1_v1",
+    "cute": "English_Cute_Girl",
+    "serious": "Determined_Man",
+    "formal": "English_Explanatory_Man",
 }
 
 
-async def run_tts(text: str, language: str = "en") -> bytes:
+async def run_tts(text: str, voice_category: str = "female") -> bytes:
     """Convert text to speech using MiniMax Speech 2.6 Turbo. Returns MP3 audio bytes."""
-    voice = TTS_SPEAKER_MAP.get(language, "male-qn-qingse")
+    voice = TTS_VOICE_MAP.get(voice_category, "Calm_Woman")
 
     async def _call():
         return await _run_model(
