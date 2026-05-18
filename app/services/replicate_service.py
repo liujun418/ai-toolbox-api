@@ -633,19 +633,12 @@ async def run_image_description(image_url: str, prompt: str = "") -> str:
 # ── B&W Colorizer ──────────────────────────────────────────────────
 
 async def run_colorizer(image_url: str) -> str:
-    """Colorize a black & white photo using SDXL img2img with low denoising to preserve structure."""
+    """Colorize a black & white photo using DDColor (Alibaba DAMO Academy, ICCV 2023).
+    It's the #1 dedicated colorization model on Replicate — ~1s, ~$0.001/run."""
     async def _call():
         return await _run_model(
-            "stability-ai/sdxl:7762fd07cf82c948538e41f63f77d685e02b063e37e496e96eefd46c929f9bdc",
-            input={
-                "image": image_url,
-                "prompt": "A beautifully colorized version of this image. Natural skin tones, realistic colors for clothing and background. Photorealistic color photography.",
-                "negative_prompt": "black and white, grayscale, monochrome, sepia, different face, different person, different composition, deformed, blurry, painting, illustration, cartoon",
-                "prompt_strength": 0.35,
-                "num_inference_steps": 40,
-                "guidance_scale": 9.0,
-                "num_outputs": 1,
-            },
+            "piddnad/ddcolor:222244b185b9a2e1fa1532cd6fc2bb7b67b5c8f32267f85c68e54f5deed23930",
+            input={"image": image_url},
         )
 
     output = await retry_with_backoff(_call)
