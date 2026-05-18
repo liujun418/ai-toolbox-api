@@ -598,33 +598,48 @@ async def run_tts(text: str, language: str = "en") -> bytes:
 # ── Image Description ───────────────────────────────────────────────
 
 async def run_image_description(image_url: str, prompt: str = "") -> str:
-    """Generate a detailed description of an image using Meta Llama 3.2 Vision."""
+    """Generate a detailed description of an image using Google Gemini Vision (REST API)."""
+    if not settings.GEMINI_API_KEY:
+        raise ValueError("GEMINI_API_KEY not configured — image description requires Gemini API")
+
     system_prompt = (
-        "You are an expert image describer. Analyze the image carefully and generate "
-        "1) a concise single-sentence caption for alt text / SEO, and "
-        "2) a detailed 3-5 sentence description covering key elements, colors, composition, "
-        "setting, people/objects, mood, and any text visible in the image. "
-        "Be accurate and specific. Format:\n"
-        "ALT: [one sentence]\n\nDESC: [detailed description]"
+        "Analyze the image carefully. Generate:\n"
+        "1) ALT: a single sentence for SEO alt text\n"
+        "2) DESC: 3-5 sentences covering objects, colors, composition, setting, mood, and text.\n"
+        "Be accurate and specific. Do NOT invent objects not in the image.\n\n"
+        "Format exactly:\nALT: [sentence]\n\nDESC: [description]"
     )
-    user_prompt = prompt.strip() if prompt and prompt.strip() else "Please describe this image in detail."
+    user_msg = prompt.strip() if prompt.strip() else "Describe this image in detail."
+
+    # Download image from presigned URL and convert to base64
+    import httpx
+    import base64
+    resp = httpx.get(image_url, follow_redirects=True, timeout=30)
+    image_b64 = base64.b64encode(resp.content).decode("utf-8")
+
+    body = {
+        "contents": [{
+            "parts": [
+                {"text": f"{system_prompt}\n\n{user_msg}"},
+                {"inlineData": {"mimeType": "image/jpeg", "data": image_b64}},
+            ]
+        }],
+        "generationConfig": {"temperature": 0.2, "maxOutputTokens": 512},
+    }
 
     async def _call():
-        client = _get_client()
-        return await asyncio.to_thread(
-            client.run,
-            "meta/meta-llama-3.2-11b-vision-instruct",
-            input={
-                "image": image_url,
-                "prompt": user_prompt,
-                "system_prompt": system_prompt,
-                "temperature": 0.2,
-                "max_tokens": 512,
-            },
-        )
+        async with httpx.AsyncClient(timeout=60) as client:
+            r = await client.post(
+                f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={settings.GEMINI_API_KEY}",
+                json=body,
+            )
+            return r.json()
 
-    output = await retry_with_backoff(_call)
-    return "".join(list(output)).strip()
+    data = await retry_with_backoff(_call)
+    try:
+        return data["candidates"][0]["content"]["parts"][0]["text"].strip()
+    except (KeyError, IndexError):
+        raise ValueError(f"Gemini API error: {data}")
 
 
 # ── B&W Colorizer ──────────────────────────────────────────────────
