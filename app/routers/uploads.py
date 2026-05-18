@@ -49,9 +49,10 @@ router = APIRouter(prefix="/api/upload", tags=["upload"])
 @router.post("/detect-faces")
 async def detect_faces_endpoint(
     file: UploadFile = File(...),
+    user: User = Depends(get_current_user),
 ):
     """Detect faces using Replicate Grounding DINO. Returns face coordinates.
-    Public endpoint — no authentication required. No credits deducted.
+    Requires authentication. No credits deducted — credit check done by frontend.
     """
     if not file.filename:
         raise HTTPException(status_code=400, detail="No file provided")
