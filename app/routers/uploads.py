@@ -532,8 +532,8 @@ async def upload_and_process(
                 language = "en"
 
             audio_bytes = await run_tts(text, language)
-            output_key = generate_download_key(user.id, task_id, "wav")
-            await upload_file(audio_bytes, output_key, "audio/wav")
+            output_key = generate_download_key(user.id, task_id, "mp3")
+            await upload_file(audio_bytes, output_key, "audio/mpeg")
             task.output_file_url = generate_presigned_url(output_key, expires_in=3600)
             task.status = TaskStatus.COMPLETED
             task.completed_at = datetime.now(UTC)

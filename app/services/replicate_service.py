@@ -561,29 +561,30 @@ async def run_face_detection(image_url: str) -> list[dict]:
 
 # ── Text to Speech ──────────────────────────────────────────────────
 
-TTS_MODEL = "suno-ai/bark"
+TTS_MODEL = "minimax/speech-2.6-turbo"
 
-# Bark speaker presets per language (Bark natively supports 13 languages)
+# Supported language codes for MiniMax Speech 2.6 (40+ languages)
 TTS_SPEAKER_MAP: dict[str, str] = {
-    "en": "v2/en_speaker_1", "de": "v2/de_speaker_1",
-    "es": "v2/es_speaker_1", "fr": "v2/fr_speaker_1",
-    "it": "v2/it_speaker_1", "ja": "v2/ja_speaker_1",
-    "ko": "v2/ko_speaker_1", "pl": "v2/pl_speaker_1",
-    "pt": "v2/pt_speaker_1", "ru": "v2/ru_speaker_1",
-    "tr": "v2/tr_speaker_1", "zh": "v2/zh_speaker_1",
-    "hi": "v2/hi_speaker_1",
-    # ar/nl/cs/hu: no native Bark speaker, use announcer (auto-detect)
+    "en": "male-qn-qingse", "es": "female-shaonv",
+    "ar": "male-qn-qingse", "fr": "female-shaonv",
+    "de": "male-qn-qingse", "it": "female-shaonv",
+    "ja": "female-shaonv", "zh": "male-qn-qingse",
+    "ko": "female-shaonv", "pt": "male-qn-qingse",
+    "ru": "male-qn-qingse", "tr": "female-shaonv",
+    "pl": "male-qn-qingse", "nl": "female-shaonv",
+    "cs": "male-qn-qingse", "hi": "female-shaonv",
+    "hu": "male-qn-qingse",
 }
 
 
 async def run_tts(text: str, language: str = "en") -> bytes:
-    """Convert text to speech using Suno Bark. Returns WAV audio bytes."""
-    speaker = TTS_SPEAKER_MAP.get(language, "announcer")
+    """Convert text to speech using MiniMax Speech 2.6 Turbo. Returns MP3 audio bytes."""
+    voice = TTS_SPEAKER_MAP.get(language, "male-qn-qingse")
 
     async def _call():
         return await _run_model(
             TTS_MODEL,
-            input={"text": text, "history_prompt": speaker},
+            input={"text": text, "voice": voice, "output_format": "mp3"},
         )
 
     output = await retry_with_backoff(_call)
