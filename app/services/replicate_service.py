@@ -600,6 +600,7 @@ async def run_tts(text: str, language: str = "en") -> bytes:
 async def run_image_description(image_url: str, prompt: str = "") -> str:
     """Generate a detailed description of an image using NVIDIA Nemotron Nano VL (official)."""
     system_prompt = (
+        "/no_think\n"
         "Analyze this image carefully. Generate:\n"
         "1) ALT: a single sentence for SEO alt text\n"
         "2) DESC: 3-5 sentences covering objects, colors, composition, setting, mood, and text.\n"
@@ -612,12 +613,13 @@ async def run_image_description(image_url: str, prompt: str = "") -> str:
         client = _get_client()
         return await asyncio.to_thread(
             client.run,
-            "nvidia/nemotron-nano-v2-12b-vl",
+            "nvidia/nemotron-nano-v2-12b-vl:f455944681df5f1bfb4171a7e1100983bd0e788d40cb75f5ae799921732d0d19",
             input={
-                "image": image_url,
-                "prompt": f"{system_prompt}\n\n{user_msg}",
+                "images": [image_url],
+                "prompt": user_msg,
+                "system_prompt": system_prompt,
                 "temperature": 0.2,
-                "max_tokens": 512,
+                "max_new_tokens": 512,
             },
         )
 
