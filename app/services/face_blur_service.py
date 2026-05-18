@@ -9,7 +9,7 @@ Supports four blur styles: mosaic, gaussian, pixelate, emoji.
 import io
 import logging
 
-from PIL import Image, ImageDraw, ImageFilter, ImageFont
+from PIL import Image, ImageDraw, ImageFilter
 
 logger = logging.getLogger(__name__)
 
@@ -76,59 +76,63 @@ def _apply_blur_region(img: Image.Image, region: dict, style: str) -> None:
     img.paste(blurred, (x, y))
 
 
-def _get_emoji_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
-    """Get a font capable of rendering emoji characters."""
-    font_paths = [
-        "/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf",  # Linux (Noto)
-        "seguiemj.ttf",                                          # Windows
-        "/System/Library/Fonts/Apple Color Emoji.ttc",           # macOS
-    ]
-    for fp in font_paths:
-        try:
-            return ImageFont.truetype(fp, size, encoding="unic")
-        except (OSError, IOError):
-            continue
-    return ImageFont.load_default()
+# Twemoji CDN URLs — reliable emoji rendering via PNG, no font dependency
+_EMOJI_CODEPOINTS = {
+    "smile": "1f60a",
+    "mask": "1f637",
+    "cat": "1f431",
+    "dog": "1f436",
+    "bear": "1f43b",
+    "star": "2b50",
+}
+_EMOJI_CACHE: dict[str, Image.Image] = {}
+
+
+def _get_emoji_image(emoji_type: str, size: int) -> Image.Image:
+    """Fetch emoji PNG from twemoji CDN, with in-memory cache."""
+    import httpx
+
+    cache_key = f"{emoji_type}_{size}"
+    if cache_key in _EMOJI_CACHE:
+        return _EMOJI_CACHE[cache_key]
+
+    codepoint = _EMOJI_CODEPOINTS.get(emoji_type, "1f60a")
+    url = f"https://cdn.jsdelivr.net/gh/twitter/twemoji@latest/assets/72x72/{codepoint}.png"
+
+    try:
+        resp = httpx.get(url, timeout=10, follow_redirects=True)
+        resp.raise_for_status()
+        emoji_img = Image.open(io.BytesIO(resp.content)).convert("RGBA")
+        emoji_img = emoji_img.resize((size, size), Image.LANCZOS)
+        _EMOJI_CACHE[cache_key] = emoji_img
+        return emoji_img
+    except Exception:
+        # Fallback: return None to signal rendering failure
+        return None
 
 
 def _apply_emoji_region(img: Image.Image, region: dict, emoji_type: str) -> None:
-    """Overlay an emoji character on a face region, matching the selector icon."""
+    """Overlay a twemoji PNG on a face region, matching the selector icon exactly."""
     x, y, w, h = region["x"], region["y"], region["w"], region["h"]
     if w <= 0 or h <= 0:
         return
 
-    # Map emoji type to the exact same emoji character shown in the selector
-    emoji_chars = {
-        "smile": "😊",
-        "mask": "😷",
-        "cat": "🐱",
-        "dog": "🐶",
-        "bear": "🐻",
-        "star": "⭐",
-    }
-    emoji_char = emoji_chars.get(emoji_type, "😊")
-
-    # Create a white semi-transparent circular background for visibility
     overlay = Image.new("RGBA", (w, h), (0, 0, 0, 0))
     draw = ImageDraw.Draw(overlay)
 
-    # Draw white circle background so emoji is visible on any image
+    # White circular background for visibility
     r = min(w, h) // 2 - 4
     cx, cy = w // 2, h // 2
     draw.ellipse([cx - r, cy - r, cx + r, cy + r],
-                 fill=(255, 255, 255, 180), outline=(255, 255, 255, 200), width=3)
+                 fill=(255, 255, 255, 200), outline=(255, 255, 255, 230), width=3)
 
-    # Render the actual emoji character using system emoji font
-    font_size = max(int(r * 1.2), 20)
-    font = _get_emoji_font(font_size)
-
-    # Center the emoji in the circle
-    bbox = draw.textbbox((0, 0), emoji_char, font=font)
-    tw = bbox[2] - bbox[0]
-    th = bbox[3] - bbox[1]
-    tx = (w - tw) // 2
-    ty = (h - th) // 2
-    draw.text((tx, ty), emoji_char, font=font, embedded_color=True, fill=None)
+    # Download and paste the actual emoji PNG from twemoji
+    emoji_size = int(r * 1.3)
+    emoji_img = _get_emoji_image(emoji_type, emoji_size)
+    if emoji_img:
+        ex = (w - emoji_img.width) // 2
+        ey = (h - emoji_img.height) // 2
+        overlay.paste(emoji_img, (ex, ey), emoji_img)
 
     img.paste(overlay, (x, y), overlay)
 
