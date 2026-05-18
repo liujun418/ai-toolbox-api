@@ -529,6 +529,8 @@ async def upload_and_process(
             if voice_category not in TTS_VOICE_MAP:
                 voice_category = "female"
 
+            logger.info("TTS request: style=%s voice_category=%s voice_id=%s", style, voice_category, TTS_VOICE_MAP.get(voice_category))
+
             audio_bytes = await run_tts(text, voice_category)
             output_key = generate_download_key(user.id, task_id, "mp3")
             await upload_file(audio_bytes, output_key, "audio/mpeg")
