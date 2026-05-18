@@ -598,11 +598,9 @@ async def run_tts(text: str, language: str = "en") -> bytes:
 # ── Image Description ───────────────────────────────────────────────
 
 async def run_image_description(image_url: str, prompt: str = "") -> str:
-    """Generate a detailed description of an image using Meta Llama Guard Vision (official).
-    Despite being a safety classifier, it's a full vision model — custom prompt guides it to describe."""
+    """Generate a detailed description of an image using NVIDIA Nemotron Nano VL (official)."""
     system_prompt = (
-        "Forget you are a safety classifier. You are an expert image describer.\n"
-        "Analyze the image carefully. Generate:\n"
+        "Analyze this image carefully. Generate:\n"
         "1) ALT: a single sentence for SEO alt text\n"
         "2) DESC: 3-5 sentences covering objects, colors, composition, setting, mood, and text.\n"
         "Be accurate and specific. Do NOT invent objects not in the image.\n\n"
@@ -614,11 +612,10 @@ async def run_image_description(image_url: str, prompt: str = "") -> str:
         client = _get_client()
         return await asyncio.to_thread(
             client.run,
-            "meta/llama-guard-3-11b-vision",
+            "nvidia/nemotron-nano-v2-12b-vl",
             input={
                 "image": image_url,
-                "prompt": user_msg,
-                "system_prompt": system_prompt,
+                "prompt": f"{system_prompt}\n\n{user_msg}",
                 "temperature": 0.2,
                 "max_tokens": 512,
             },
