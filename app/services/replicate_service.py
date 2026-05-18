@@ -630,7 +630,7 @@ async def run_image_description(image_url: str, prompt: str = "") -> str:
     async def _call():
         async with httpx.AsyncClient(timeout=60) as client:
             r = await client.post(
-                f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={settings.GEMINI_API_KEY}",
+                f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={settings.GEMINI_API_KEY}",
                 json=body,
             )
             if r.status_code == 429:
@@ -639,7 +639,7 @@ async def run_image_description(image_url: str, prompt: str = "") -> str:
                 raise Exception(f"Gemini API error {r.status_code}: {r.text}")
             return r.json()
 
-    data = await retry_with_backoff(_call, max_retries=3, base_delay=3)
+    data = await retry_with_backoff(_call, max_retries=5, base_delay=5)
     try:
         return data["candidates"][0]["content"]["parts"][0]["text"].strip()
     except (KeyError, IndexError):
