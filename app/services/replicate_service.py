@@ -633,17 +633,17 @@ async def run_image_description(image_url: str, prompt: str = "") -> str:
 # ── B&W Colorizer ──────────────────────────────────────────────────
 
 async def run_colorizer(image_url: str) -> str:
-    """Colorize a black & white photo using SDXL img2img with a colorization prompt."""
+    """Colorize a black & white photo using SDXL img2img with low denoising to preserve structure."""
     async def _call():
         return await _run_model(
             "stability-ai/sdxl:7762fd07cf82c948538e41f63f77d685e02b063e37e496e96eefd46c929f9bdc",
             input={
                 "image": image_url,
-                "prompt": "colorized version of this black and white photograph, natural realistic colors, vibrant skin tones, lifelike color palette, photorealistic, 8k, highly detailed",
-                "negative_prompt": "black and white, monochrome, grayscale, desaturated, sepia, faded, washed out colors, oversaturated, cartoon, painting, illustration",
-                "prompt_strength": 0.7,
-                "num_inference_steps": 30,
-                "guidance_scale": 7.5,
+                "prompt": "A beautifully colorized version of this image. Natural skin tones, realistic colors for clothing and background. Photorealistic color photography.",
+                "negative_prompt": "black and white, grayscale, monochrome, sepia, different face, different person, different composition, deformed, blurry, painting, illustration, cartoon",
+                "prompt_strength": 0.35,
+                "num_inference_steps": 40,
+                "guidance_scale": 9.0,
                 "num_outputs": 1,
             },
         )
