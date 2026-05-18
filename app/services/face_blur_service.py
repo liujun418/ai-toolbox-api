@@ -77,48 +77,173 @@ def _apply_blur_region(img: Image.Image, region: dict, style: str) -> None:
 
 
 def _apply_emoji_region(img: Image.Image, region: dict, emoji_type: str) -> None:
-    """Overlay a cute icon on a face region using PIL shapes (no font dependency)."""
+    """Overlay a distinct cute icon on a face region using PIL shapes."""
     x, y, w, h = region["x"], region["y"], region["w"], region["h"]
     if w <= 0 or h <= 0:
         return
 
-    # Color themes per emoji type
-    themes = {
-        "smile": ("#FDD835", "#F9A825", "#5D4037"),   # yellow
-        "mask":  ("#90CAF9", "#1976D2", "#0D47A1"),   # blue
-        "cat":   ("#FFAB91", "#E64A19", "#BF360C"),   # orange
-        "dog":   ("#A5D6A7", "#388E3C", "#1B5E20"),   # green
-        "bear":  ("#BCAAA4", "#5D4037", "#3E2723"),   # brown
-        "star":  ("#FFF176", "#FBC02D", "#F57F17"),   # gold
-    }
-    bg, border, detail = themes.get(emoji_type, themes["smile"])
-
     overlay = Image.new("RGBA", (w, h), (0, 0, 0, 0))
     draw = ImageDraw.Draw(overlay)
-
+    stroke = max(3, min(w, h) // 40)
     margin = max(w, h) // 25 + 2
-    ex0, ey0 = margin, margin
-    ex1, ey1 = w - margin, h - margin
-    draw.ellipse([ex0, ey0, ex1, ey1], fill=bg, outline=border, width=max(3, min(w, h) // 40))
 
     cx, cy = w // 2, h // 2
     eye_r = max(w // 14, 3)
     eye_y = cy - h // 7
-    # Left eye
-    lx = cx - w // 5
-    draw.ellipse([lx - eye_r, eye_y - eye_r, lx + eye_r, eye_y + eye_r], fill=detail)
-    # Right eye
-    rx = cx + w // 5
-    draw.ellipse([rx - eye_r, eye_y - eye_r, rx + eye_r, eye_y + eye_r], fill=detail)
-
-    # Smile arc
     smile_w = w // 4
     smile_h = h // 6
     smile_y = cy + h // 9
-    draw.arc(
-        [cx - smile_w, smile_y - smile_h, cx + smile_w, smile_y + smile_h],
-        0, 180, fill=detail, width=max(3, min(w, h) // 40),
-    )
+
+    if emoji_type == "star":
+        # Draw a 5-pointed star
+        import math
+        outer_r = min(w, h) // 2 - margin
+        inner_r = outer_r * 0.45
+        pts = []
+        for i in range(10):
+            angle = math.pi / 2 - i * math.pi / 5
+            r = outer_r if i % 2 == 0 else inner_r
+            pts.append((cx + r * math.cos(angle), cy - r * math.sin(angle)))
+        draw.polygon(pts, fill="#FDD835", outline="#F9A825")
+        # Eyes inside star
+        draw.ellipse([cx - eye_r * 2, eye_y - eye_r, cx - eye_r // 2, eye_y + eye_r], fill="#5D4037")
+        draw.ellipse([cx + eye_r // 2, eye_y - eye_r, cx + eye_r * 2, eye_y + eye_r], fill="#5D4037")
+        draw.arc([cx - smile_w, smile_y - smile_h, cx + smile_w, smile_y + smile_h],
+                 0, 180, fill="#5D4037", width=stroke)
+
+    elif emoji_type == "mask":
+        # Blue circle with medical mask
+        draw.ellipse([margin, margin, w - margin, h - margin],
+                     fill="#90CAF9", outline="#1976D2", width=stroke)
+        # White mask rectangle covering lower half
+        mask_top = cy + h // 20
+        mask_bottom = h - margin * 2
+        mask_l = cx - w // 3
+        mask_r = cx + w // 3
+        draw.rounded_rectangle([mask_l, mask_top, mask_r, mask_bottom],
+                               radius=w // 12, fill="white", outline="#B0BEC5", width=2)
+        # Mask ear loops
+        draw.arc([mask_l - w // 10, mask_top - h // 10, mask_l + w // 10, cy],
+                 270, 90, fill="#B0BEC5", width=stroke)
+        draw.arc([mask_r - w // 10, mask_top - h // 10, mask_r + w // 10, cy],
+                 90, 270, fill="#B0BEC5", width=stroke)
+        # Eyes above mask
+        draw.ellipse([cx - w // 4 - eye_r, eye_y - eye_r, cx - w // 4 + eye_r, eye_y + eye_r],
+                     fill="#0D47A1")
+        draw.ellipse([cx + w // 4 - eye_r, eye_y - eye_r, cx + w // 4 + eye_r, eye_y + eye_r],
+                     fill="#0D47A1")
+
+    elif emoji_type == "cat":
+        # Orange circle with cat ears
+        ear_h = h // 4
+        ear_w = w // 5
+        # Left ear
+        draw.polygon([cx - w // 3 - ear_w, cy - h // 4, cx - w // 5, cy - h // 5 + ear_h,
+                      cx - w // 4, cy - h // 4],
+                     fill="#FFAB91", outline="#E64A19", width=stroke)
+        # Right ear
+        draw.polygon([cx + w // 3 + ear_w, cy - h // 4, cx + w // 5, cy - h // 5 + ear_h,
+                      cx + w // 4, cy - h // 4],
+                     fill="#FFAB91", outline="#E64A19", width=stroke)
+        # Inner ears
+        draw.polygon([cx - w // 3 - ear_w // 2, cy - h // 5, cx - w // 5, cy - h // 6 + ear_h * 2 // 3,
+                      cx - w // 4, cy - h // 5],
+                     fill="#FFCCBC")
+        draw.polygon([cx + w // 3 + ear_w // 2, cy - h // 5, cx + w // 5, cy - h // 6 + ear_h * 2 // 3,
+                      cx + w // 4, cy - h // 5],
+                     fill="#FFCCBC")
+        # Face circle
+        draw.ellipse([margin, margin, w - margin, h - margin],
+                     fill="#FFAB91", outline="#E64A19", width=stroke)
+        # Eyes
+        draw.ellipse([cx - w // 5 - eye_r, eye_y - eye_r, cx - w // 5 + eye_r, eye_y + eye_r],
+                     fill="#BF360C")
+        draw.ellipse([cx + w // 5 - eye_r, eye_y - eye_r, cx + w // 5 + eye_r, eye_y + eye_r],
+                     fill="#BF360C")
+        # Nose
+        draw.ellipse([cx - 2, cy + h // 20 - 2, cx + 2, cy + h // 20 + 2], fill="#E64A19")
+        # Mouth (two arcs)
+        draw.arc([cx - w // 6, cy + h // 15, cx, cy + h // 6],
+                 0, 180, fill="#BF360C", width=stroke)
+        draw.arc([cx, cy + h // 15, cx + w // 6, cy + h // 6],
+                 0, 180, fill="#BF360C", width=stroke)
+        # Whiskers
+        for side, dir in [(-1, -1), (-1, 1), (1, -1), (1, 1)]:
+            ws = cx + side * w // 5
+            we = cx + side * w // 2
+            wy = cy + h // 20 + dir * h // 20
+            draw.line([ws, wy, we, wy + dir * h // 15], fill="#BF360C", width=max(1, stroke - 1))
+
+    elif emoji_type == "dog":
+        # Green circle with floppy dog ears
+        ear_h = h // 3
+        ear_w = w // 4
+        # Left floppy ear
+        draw.ellipse([cx - w // 3 - ear_w, cy - h // 3, cx - w // 6, cy],
+                     fill="#A5D6A7", outline="#388E3C", width=stroke)
+        # Right floppy ear
+        draw.ellipse([cx + w // 6, cy - h // 3, cx + w // 3 + ear_w, cy],
+                     fill="#A5D6A7", outline="#388E3C", width=stroke)
+        # Face circle
+        draw.ellipse([margin, margin, w - margin, h - margin],
+                     fill="#A5D6A7", outline="#388E3C", width=stroke)
+        # Eyes
+        draw.ellipse([cx - w // 5 - eye_r, eye_y - eye_r, cx - w // 5 + eye_r, eye_y + eye_r],
+                     fill="#1B5E20")
+        draw.ellipse([cx + w // 5 - eye_r, eye_y - eye_r, cx + w // 5 + eye_r, eye_y + eye_r],
+                     fill="#1B5E20")
+        # Nose
+        draw.ellipse([cx - w // 12, cy + h // 20 - h // 16, cx + w // 12, cy + h // 20],
+                     fill="#2E7D32")
+        # Tongue
+        draw.ellipse([cx - w // 10, cy + h // 6, cx + w // 10, cy + h // 3],
+                     fill="#E57373")
+        draw.line([cx, cy + h // 6, cx, cy + h // 4], fill="#C62828", width=1)
+
+    elif emoji_type == "bear":
+        # Brown circle with round bear ears
+        ear_r = w // 6
+        # Left ear
+        draw.ellipse([cx - w // 3 - ear_r, cy - h // 3, cx - w // 3 + ear_r, cy - h // 3 + ear_r * 2],
+                     fill="#BCAAA4", outline="#5D4037", width=stroke)
+        draw.ellipse([cx - w // 3 - ear_r * 2 // 3, cy - h // 3 + ear_r // 3,
+                      cx - w // 3 + ear_r * 2 // 3, cy - h // 3 + ear_r],
+                     fill="#D7CCC8")
+        # Right ear
+        draw.ellipse([cx + w // 3 - ear_r, cy - h // 3, cx + w // 3 + ear_r, cy - h // 3 + ear_r * 2],
+                     fill="#BCAAA4", outline="#5D4037", width=stroke)
+        draw.ellipse([cx + w // 3 - ear_r * 2 // 3, cy - h // 3 + ear_r // 3,
+                      cx + w // 3 + ear_r * 2 // 3, cy - h // 3 + ear_r],
+                     fill="#D7CCC8")
+        # Face circle
+        draw.ellipse([margin, margin, w - margin, h - margin],
+                     fill="#BCAAA4", outline="#5D4037", width=stroke)
+        # Muzzle (lighter oval)
+        mz_w = w // 4
+        mz_h = h // 5
+        draw.ellipse([cx - mz_w, cy - h // 20, cx + mz_w, cy + h // 5],
+                     fill="#D7CCC8")
+        # Eyes
+        draw.ellipse([cx - w // 5 - eye_r, eye_y - eye_r, cx - w // 5 + eye_r, eye_y + eye_r],
+                     fill="#3E2723")
+        draw.ellipse([cx + w // 5 - eye_r, eye_y - eye_r, cx + w // 5 + eye_r, eye_y + eye_r],
+                     fill="#3E2723")
+        # Nose
+        draw.ellipse([cx - w // 16, cy + h // 30 - h // 30, cx + w // 16, cy + h // 30 + h // 30],
+                     fill="#3E2723")
+        draw.arc([cx - w // 8, cy + h // 15, cx + w // 8, cy + h // 5],
+                 0, 180, fill="#3E2723", width=stroke)
+
+    else:  # smile (default)
+        # Yellow circle with smiley face
+        draw.ellipse([margin, margin, w - margin, h - margin],
+                     fill="#FDD835", outline="#F9A825", width=stroke)
+        draw.ellipse([cx - w // 5 - eye_r, eye_y - eye_r, cx - w // 5 + eye_r, eye_y + eye_r],
+                     fill="#5D4037")
+        draw.ellipse([cx + w // 5 - eye_r, eye_y - eye_r, cx + w // 5 + eye_r, eye_y + eye_r],
+                     fill="#5D4037")
+        draw.arc([cx - smile_w, smile_y - smile_h, cx + smile_w, smile_y + smile_h],
+                 0, 180, fill="#5D4037", width=stroke)
 
     img.paste(overlay, (x, y), overlay)
 
