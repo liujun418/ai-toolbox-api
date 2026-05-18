@@ -48,10 +48,9 @@ router = APIRouter(prefix="/api/upload", tags=["upload"])
 @router.post("/detect-faces")
 async def detect_faces_endpoint(
     file: UploadFile = File(...),
-    user: User = Depends(get_current_user),
 ):
     """Detect faces in an uploaded image. Returns face coordinates.
-    No credits are deducted — this is a pre-processing inspection step.
+    Public endpoint — no authentication required. No credits deducted.
     """
     if not file.filename:
         raise HTTPException(status_code=400, detail="No file provided")
