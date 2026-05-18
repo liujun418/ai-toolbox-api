@@ -632,15 +632,19 @@ async def run_image_description(image_url: str, prompt: str = "") -> str:
 
 # ── B&W Colorizer ──────────────────────────────────────────────────
 
-COLORIZER_MODEL = "piddnad/ddcolor:3b7fb0ae0e4de7e8e4df0d9e37bc5e2ff48f00c750829cb17d71f4ae0ce1c3d2"
+COLORIZER_MODEL = "arielreplicate/deoldify_image"
 
 
 async def run_colorizer(image_url: str) -> str:
-    """Colorize a black and white photo using DDColor. Returns output URL."""
+    """Colorize a black and white photo using DeOldify. Returns output URL."""
     async def _call():
         return await _run_model(
             COLORIZER_MODEL,
-            input={"image": image_url},
+            input={
+                "input_image": image_url,
+                "model_name": "Artistic",
+                "render_factor": 35,
+            },
         )
 
     output = await retry_with_backoff(_call)
