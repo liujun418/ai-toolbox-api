@@ -73,6 +73,10 @@ async def detect_faces_endpoint(
         except Exception:
             raise HTTPException(status_code=400, detail="Unsupported file format. Please use PNG, JPG, or WebP.")
 
+    # Get original image dimensions for coordinate normalization
+    orig_img = Image.open(io_module.BytesIO(file_bytes))
+    img_w, img_h = orig_img.size
+
     # Upload to temp storage for Replicate to access
     temp_key = f"detect-temp/{uuid.uuid4().hex}.png"
     await upload_file(file_bytes, temp_key, "image/png")
@@ -80,7 +84,17 @@ async def detect_faces_endpoint(
 
     try:
         faces = await run_face_detection(image_url)
-        return {"faces": faces, "face_count": len(faces)}
+        # Normalize to 0-1 using original image dimensions (Grounding DINO may resize internally)
+        normalized = [
+            {
+                "x": f["x"] / img_w,
+                "y": f["y"] / img_h,
+                "w": f["w"] / img_w,
+                "h": f["h"] / img_h,
+            }
+            for f in faces
+        ]
+        return {"faces": normalized, "face_count": len(normalized)}
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Face detection failed: {str(e)}")
 

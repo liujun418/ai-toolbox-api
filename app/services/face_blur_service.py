@@ -76,32 +76,49 @@ def _apply_blur_region(img: Image.Image, region: dict, style: str) -> None:
     img.paste(blurred, (x, y))
 
 
-def _apply_emoji_region(img: Image.Image, region: dict, emoji_char: str) -> None:
-    """Overlay a cute emoji on a face region."""
+def _apply_emoji_region(img: Image.Image, region: dict, emoji_type: str) -> None:
+    """Overlay a cute icon on a face region using PIL shapes (no font dependency)."""
     x, y, w, h = region["x"], region["y"], region["w"], region["h"]
     if w <= 0 or h <= 0:
         return
 
-    overlay = Image.new("RGBA", (w, h), (255, 255, 255, 180))
+    # Color themes per emoji type
+    themes = {
+        "smile": ("#FDD835", "#F9A825", "#5D4037"),   # yellow
+        "mask":  ("#90CAF9", "#1976D2", "#0D47A1"),   # blue
+        "cat":   ("#FFAB91", "#E64A19", "#BF360C"),   # orange
+        "dog":   ("#A5D6A7", "#388E3C", "#1B5E20"),   # green
+        "bear":  ("#BCAAA4", "#5D4037", "#3E2723"),   # brown
+        "star":  ("#FFF176", "#FBC02D", "#F57F17"),   # gold
+    }
+    bg, border, detail = themes.get(emoji_type, themes["smile"])
+
+    overlay = Image.new("RGBA", (w, h), (0, 0, 0, 0))
     draw = ImageDraw.Draw(overlay)
-    font_size = max(min(w, h) // 2, 20)
 
-    try:
-        font = ImageFont.truetype("seguiemj.ttf", font_size)
-    except (OSError, IOError):
-        try:
-            font = ImageFont.truetype(
-                "/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf", font_size
-            )
-        except (OSError, IOError):
-            font = ImageFont.load_default()
+    margin = max(w, h) // 25 + 2
+    ex0, ey0 = margin, margin
+    ex1, ey1 = w - margin, h - margin
+    draw.ellipse([ex0, ey0, ex1, ey1], fill=bg, outline=border, width=max(3, min(w, h) // 40))
 
-    bbox = draw.textbbox((0, 0), emoji_char, font=font)
-    tw = bbox[2] - bbox[0]
-    th = bbox[3] - bbox[1]
-    tx = (w - tw) // 2
-    ty = (h - th) // 2
-    draw.text((tx, ty), emoji_char, font=font, embedded_color=True)
+    cx, cy = w // 2, h // 2
+    eye_r = max(w // 14, 3)
+    eye_y = cy - h // 7
+    # Left eye
+    lx = cx - w // 5
+    draw.ellipse([lx - eye_r, eye_y - eye_r, lx + eye_r, eye_y + eye_r], fill=detail)
+    # Right eye
+    rx = cx + w // 5
+    draw.ellipse([rx - eye_r, eye_y - eye_r, rx + eye_r, eye_y + eye_r], fill=detail)
+
+    # Smile arc
+    smile_w = w // 4
+    smile_h = h // 6
+    smile_y = cy + h // 9
+    draw.arc(
+        [cx - smile_w, smile_y - smile_h, cx + smile_w, smile_y + smile_h],
+        0, 180, fill=detail, width=max(3, min(w, h) // 40),
+    )
 
     img.paste(overlay, (x, y), overlay)
 
@@ -143,10 +160,9 @@ def apply_face_blur(
             valid_regions.append(clamped)
 
     # Apply style
-    emoji_char = EMOJI_OPTIONS.get(emoji_type, "😊")
     for region in valid_regions:
         if blur_style == "emoji":
-            _apply_emoji_region(img, region, emoji_char)
+            _apply_emoji_region(img, region, emoji_type)
         else:
             _apply_blur_region(img, region, blur_style)
 
