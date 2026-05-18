@@ -10,7 +10,8 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import User, Task, TaskStatus, Transaction
+from app.models import User, Task, TaskStatus, Transaction, Suggestion
+from app.schemas import SuggestionResponse, SuggestionListResponse
 from app.schemas.admin import (
     AdminStatsResponse,
     AdminUserResponse,
@@ -360,3 +361,78 @@ def list_transactions(
         ],
         total=total, page=page, size=size,
     )
+
+
+# ── Suggestions (public submit) ──────────────────────────────────
+
+from pydantic import BaseModel as PydanticBaseModel
+
+
+class CreateSuggestion(PydanticBaseModel):
+    text: str
+
+
+@router.post("/public/suggestions")
+def create_suggestion(
+    body: CreateSuggestion,
+    db: Session = Depends(get_db),
+):
+    if not body.text or not body.text.strip():
+        raise HTTPException(status_code=400, detail="Text is required")
+    if len(body.text) > 1000:
+        raise HTTPException(status_code=400, detail="Text too long (max 1000 characters)")
+    s = Suggestion(id=str(uuid.uuid4()), text=body.text.strip())
+    db.add(s)
+    db.commit()
+    return {"message": "Thank you for your suggestion!", "id": s.id}
+
+
+# ── Suggestions (admin) ──────────────────────────────────────────
+
+@router.get("/suggestions", response_model=SuggestionListResponse)
+def list_suggestions(
+    page: int = Query(1, ge=1),
+    size: int = Query(50, ge=1, le=100),
+    user: User = Depends(_get_admin_user),
+    db: Session = Depends(get_db),
+):
+    total = db.query(Suggestion).count()
+    suggestions = (
+        db.query(Suggestion)
+        .order_by(Suggestion.created_at.desc())
+        .offset((page - 1) * size)
+        .limit(size)
+        .all()
+    )
+    return SuggestionListResponse(
+        suggestions=[SuggestionResponse.model_validate(s) for s in suggestions],
+        total=total,
+    )
+
+
+@router.delete("/suggestions/{suggestion_id}")
+def delete_suggestion(
+    suggestion_id: str,
+    user: User = Depends(_get_admin_user),
+    db: Session = Depends(get_db),
+):
+    s = db.query(Suggestion).filter(Suggestion.id == suggestion_id).first()
+    if not s:
+        raise HTTPException(status_code=404, detail="Suggestion not found")
+    db.delete(s)
+    db.commit()
+    return {"message": "Deleted"}
+
+
+@router.patch("/suggestions/{suggestion_id}/read")
+def mark_suggestion_read(
+    suggestion_id: str,
+    user: User = Depends(_get_admin_user),
+    db: Session = Depends(get_db),
+):
+    s = db.query(Suggestion).filter(Suggestion.id == suggestion_id).first()
+    if not s:
+        raise HTTPException(status_code=404, detail="Suggestion not found")
+    s.read = True
+    db.commit()
+    return {"message": "Marked as read"}

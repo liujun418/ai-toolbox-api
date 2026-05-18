@@ -139,3 +139,20 @@ CREDIT_COSTS: dict[str, float] = {
     "colorizer": 2,
     "object-remover": 3,
 }
+
+
+# --- Schemas for Suggestions ---
+
+class SuggestionResponse(BaseModel):
+    id: str
+    text: str
+    read: bool = False
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class SuggestionListResponse(BaseModel):
+    suggestions: list[SuggestionResponse]
+    total: int

@@ -1,7 +1,7 @@
 from datetime import datetime, UTC
 from enum import Enum
 
-from sqlalchemy import Column, DateTime, Enum as SAEnum, Float, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Column, DateTime, Enum as SAEnum, Float, ForeignKey, Integer, String, Text, func, Boolean
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -97,3 +97,14 @@ class Transaction(Base):
     )
 
     user = relationship("User", back_populates="transactions")
+
+
+class Suggestion(Base):
+    __tablename__ = "suggestions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    read: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )

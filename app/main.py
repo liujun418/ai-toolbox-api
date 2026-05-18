@@ -15,7 +15,7 @@ logging.basicConfig(
 
 
 def _ensure_db_columns():
-    """Add missing columns to users table (lightweight alternative to alembic)."""
+    """Add missing columns and tables (lightweight alternative to alembic)."""
     from sqlalchemy import inspect, text
 
     inspector = inspect(engine)
@@ -39,9 +39,7 @@ def _ensure_db_columns():
         for col_name, col_type in needed.items():
             if col_name not in existing:
                 conn.execute(text(f"ALTER TABLE users ADD COLUMN {col_name} {col_type}"))
-        # Normalize role column: SAEnum created a PostgreSQL ENUM type storing
-        # uppercase member names (USER/ADMIN). The model now uses plain string.
-        # First convert the column type, then normalize values to lowercase.
+        # Normalize role column
         col_type = conn.execute(text(
             "SELECT data_type FROM information_schema.columns WHERE table_name='users' AND column_name='role'"
         )).scalar()
@@ -49,6 +47,17 @@ def _ensure_db_columns():
             conn.execute(text("ALTER TABLE users ALTER COLUMN role TYPE VARCHAR(20) USING role::text"))
         conn.execute(text("UPDATE users SET role = 'admin' WHERE role = 'ADMIN'"))
         conn.execute(text("UPDATE users SET role = 'user' WHERE role = 'USER'"))
+
+        # Ensure suggestions table exists
+        if "suggestions" not in inspector.get_table_names():
+            conn.execute(text(
+                "CREATE TABLE suggestions ("
+                "id VARCHAR(36) PRIMARY KEY, "
+                "text TEXT NOT NULL, "
+                "read BOOLEAN DEFAULT FALSE, "
+                "created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()"
+                ")"
+            ))
 
 
 @asynccontextmanager
