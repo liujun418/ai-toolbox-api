@@ -30,16 +30,21 @@ from app.services.replicate_service import (
     run_ai_image_generation,
     run_avatar_generation,
     run_background_remover,
+    run_colorizer,
     run_face_detection,
+    run_image_description,
     run_image_upscaler,
+    run_object_removal,
     run_pdf_ocr,
     run_pdf_restructure,
     run_photo_restoration,
     run_style_transfer,
     run_article_generation,
     run_text_polish,
+    run_tts,
     run_watermark_removal,
     auto_detect_watermark,
+    TTS_LANG_MAP,
 )
 
 logger = logging.getLogger(__name__)
@@ -111,11 +116,14 @@ IMAGE_TOOL_TYPES = {
     "image-upscaler",
     "style-transfer",
     "face-blur",
+    "colorizer",
+    "object-remover",
+    "image-description",
 }
 
 ALLOWED_IMAGE_CONTENT_TYPES = {"image/png", "image/jpeg", "image/webp"}
 
-TEXT_TOOL_TYPES = {"text-polish", "article-generator"}
+TEXT_TOOL_TYPES = {"text-polish", "article-generator", "text-to-speech"}
 
 
 def _friendly_error(message: str, tool_type: str = "") -> str:
@@ -224,6 +232,11 @@ async def upload_and_process(
         if not prompt or not prompt.strip():
             raise HTTPException(status_code=400, detail="Please provide a text description of the image you want to generate.")
         file_bytes = await file.read() if file else b""
+    elif tool_type == "text-to-speech":
+        # Text-to-speech: no file needed, text comes via prompt
+        if not prompt or not prompt.strip():
+            raise HTTPException(status_code=400, detail="Please enter text to convert to speech.")
+        file_bytes = b""
     else:
         if file is None:
             raise HTTPException(status_code=400, detail="File is required for this tool")
@@ -506,6 +519,57 @@ async def upload_and_process(
             output_key = generate_download_key(user.id, task_id, "txt")
             await upload_file(output.encode("utf-8"), output_key, "text/plain")
             task.output_file_url = generate_presigned_url(output_key, expires_in=3600)
+            task.status = TaskStatus.COMPLETED
+            task.completed_at = datetime.now(UTC)
+
+        elif tool_type == "text-to-speech":
+            text = (prompt or "").strip()
+            if not text:
+                raise HTTPException(status_code=400, detail="Please enter text to convert to speech.")
+
+            language = (style or "en").lower()
+            if language not in TTS_LANG_MAP:
+                language = "en"
+
+            audio_bytes = await run_tts(text, language)
+            output_key = generate_download_key(user.id, task_id, "wav")
+            await upload_file(audio_bytes, output_key, "audio/wav")
+            task.output_file_url = generate_presigned_url(output_key, expires_in=3600)
+            task.status = TaskStatus.COMPLETED
+            task.completed_at = datetime.now(UTC)
+
+        elif tool_type == "image-description":
+            user_prompt = (prompt or "").strip()
+            description = await run_image_description(image_url, user_prompt)
+            result_content = description
+            output_key = generate_download_key(user.id, task_id, "txt")
+            await upload_file(description.encode("utf-8"), output_key, "text/plain")
+            task.output_file_url = generate_presigned_url(output_key, expires_in=3600)
+            task.status = TaskStatus.COMPLETED
+            task.completed_at = datetime.now(UTC)
+
+        elif tool_type == "colorizer":
+            output_url = await run_colorizer(image_url)
+            task.output_file_url = output_url
+            task.status = TaskStatus.COMPLETED
+            task.completed_at = datetime.now(UTC)
+
+        elif tool_type == "object-remover":
+            if mask is not None and mask.filename:
+                mask_bytes = await mask.read()
+            else:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Please paint over the object you want to remove. A mask is required.",
+                )
+
+            # Upload mask
+            mask_key = f"masks/{user.id}/{uuid.uuid4().hex}.png"
+            await upload_file(mask_bytes, mask_key, "image/png")
+            mask_url = generate_presigned_url(mask_key, expires_in=3600)
+
+            result_url = await run_object_removal(image_url, mask_url)
+            task.output_file_url = result_url
             task.status = TaskStatus.COMPLETED
             task.completed_at = datetime.now(UTC)
 

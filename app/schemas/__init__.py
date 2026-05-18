@@ -134,4 +134,8 @@ CREDIT_COSTS: dict[str, float] = {
     "text-polish": 3,
     "face-blur": 2,  # 2 for normal, 4 for HD/multi-face (dynamic in uploads.py)
     "article-generator": 3,
+    "text-to-speech": 3,
+    "image-description": 2,
+    "colorizer": 2,
+    "object-remover": 3,
 }

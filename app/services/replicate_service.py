@@ -559,6 +559,120 @@ async def run_face_detection(image_url: str) -> list[dict]:
     return faces
 
 
+# ── Text to Speech ──────────────────────────────────────────────────
+
+TTS_MODEL = "bzikst/xtts-v2-fork:a1f90887f0ef43fe6c4a04f6d1d3e7c7480cc6c9750d7c0e516a5f50d4e7aad0"
+
+TTS_LANG_MAP: dict[str, str] = {
+    "en": "en", "es": "es", "ar": "ar", "fr": "fr", "de": "de",
+    "it": "it", "pt": "pt", "pl": "pl", "tr": "tr", "ru": "ru",
+    "nl": "nl", "cs": "cs", "ja": "ja", "zh": "zh-cn", "ko": "ko",
+    "hi": "hi", "hu": "hu",
+}
+
+
+async def run_tts(text: str, language: str = "en") -> bytes:
+    """Convert text to speech using XTTS-v2. Returns WAV audio bytes."""
+    lang = TTS_LANG_MAP.get(language, language)
+
+    async def _call():
+        return await _run_model(
+            TTS_MODEL,
+            input={"text": text, "language": lang},
+        )
+
+    output = await retry_with_backoff(_call)
+    # Replicate returns a URL string for file output
+    output_url = str(output) if not isinstance(output, list) else str(output[0])
+
+    import httpx
+    resp = httpx.get(output_url, follow_redirects=True, timeout=60)
+    return resp.content
+
+
+# ── Image Description ───────────────────────────────────────────────
+
+IMAGE_DESC_MODEL = "yorickvp/llava-13b:e272157381e2a3bf12df3a8edd1f38d1dbd736bbb329ef07c4c9b93ae3ce8c9f"
+
+
+async def run_image_description(image_url: str, prompt: str = "") -> str:
+    """Generate a detailed description of an image using LLaVA-13b."""
+    system_prompt = (
+        "You are an expert image describer. Analyze the image carefully and generate "
+        "1) a concise single-sentence caption for alt text / SEO, and "
+        "2) a detailed 3-5 sentence description covering key elements, colors, composition, "
+        "setting, people/objects, mood, and any text visible in the image. "
+        "Be accurate and specific. Format:\n"
+        "ALT: [one sentence]\n\nDESC: [detailed description]"
+    )
+    user_prompt = prompt.strip() if prompt and prompt.strip() else "Please describe this image in detail."
+
+    async def _call():
+        client = _get_client()
+        return await asyncio.to_thread(
+            client.run,
+            IMAGE_DESC_MODEL,
+            input={
+                "image": image_url,
+                "prompt": user_prompt,
+                "system_prompt": system_prompt,
+                "temperature": 0.2,
+                "max_tokens": 512,
+            },
+        )
+
+    output = await retry_with_backoff(_call)
+    return "".join(list(output)).strip()
+
+
+# ── B&W Colorizer ──────────────────────────────────────────────────
+
+COLORIZER_MODEL = "piddnad/ddcolor:3b7fb0ae0e4de7e8e4df0d9e37bc5e2ff48f00c750829cb17d71f4ae0ce1c3d2"
+
+
+async def run_colorizer(image_url: str) -> str:
+    """Colorize a black and white photo using DDColor. Returns output URL."""
+    async def _call():
+        return await _run_model(
+            COLORIZER_MODEL,
+            input={"image": image_url},
+        )
+
+    output = await retry_with_backoff(_call)
+    if isinstance(output, list) and output:
+        return str(output[0])
+    return str(output)
+
+
+# ── Object Remover ──────────────────────────────────────────────────
+
+OBJECT_REMOVER_MODEL = "zf-kbot/object-remover-20251030:77061e4f2a4c96c67f2c750839b4025f4a2c44d38e279cd087ac484fe8ce16cd"
+
+
+async def run_object_removal(image_url: str, mask_url: str) -> str:
+    """Remove unwanted objects from an image using inpainting. Returns output URL."""
+    async def _call():
+        return await _run_model(
+            OBJECT_REMOVER_MODEL,
+            input={
+                "image": image_url,
+                "mask": mask_url,
+                "task": "object_removal",
+                "apply_object_removal_lora": "1",
+                "num_inference_steps": 10,
+                "guidance_scale": 1.4,
+                "true_cfg": 4,
+            },
+        )
+
+    output = await retry_with_backoff(_call)
+    if isinstance(output, list):
+        if not output:
+            raise ValueError("Object remover returned empty output")
+        return str(output[0])
+    return str(output)
+
+
 # ── Article Generator ──────────────────────────────────────────────
 
 async def run_article_generation(topic: str, keywords: str = "", tone: str = "") -> str:
