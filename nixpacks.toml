@@ -1,2 +1,0 @@
-[phases.setup]
-aptPkgs = ["libxcb1", "libx11-6", "libglib2.0-0"]

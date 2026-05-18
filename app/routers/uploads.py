@@ -25,11 +25,12 @@ from app.services.storage import (
     generate_presigned_url,
 )
 from app.services.pdf_service import convert_pdf_to_word, get_pdf_page_count, is_scanned_pdf, convert_scanned_pdf_to_word
-# face_blur_service imported lazily to avoid cv2 import at startup (requires system libs)
+from app.services.face_blur_service import apply_face_blur
 from app.services.replicate_service import (
     run_ai_image_generation,
     run_avatar_generation,
     run_background_remover,
+    run_face_detection,
     run_image_upscaler,
     run_pdf_ocr,
     run_pdf_restructure,
@@ -49,7 +50,7 @@ router = APIRouter(prefix="/api/upload", tags=["upload"])
 async def detect_faces_endpoint(
     file: UploadFile = File(...),
 ):
-    """Detect faces in an uploaded image. Returns face coordinates.
+    """Detect faces using Replicate Grounding DINO. Returns face coordinates.
     Public endpoint — no authentication required. No credits deducted.
     """
     if not file.filename:
@@ -72,17 +73,16 @@ async def detect_faces_endpoint(
         except Exception:
             raise HTTPException(status_code=400, detail="Unsupported file format. Please use PNG, JPG, or WebP.")
 
+    # Upload to temp storage for Replicate to access
+    temp_key = f"detect-temp/{uuid.uuid4().hex}.png"
+    await upload_file(file_bytes, temp_key, "image/png")
+    image_url = generate_presigned_url(temp_key, expires_in=600)
+
     try:
-        faces = await asyncio.to_thread(detect_faces_only, file_bytes)
+        faces = await run_face_detection(image_url)
         return {"faces": faces, "face_count": len(faces)}
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Face detection failed: {str(e)}")
-
-
-def detect_faces_only(image_bytes: bytes) -> list[dict]:
-    """Thin wrapper for standalone face detection (imports lazily)."""
-    from app.services.face_blur_service import detect_faces  # noqa: F811
-    return detect_faces(image_bytes)
 
 
 # Image tools that need preprocessing/postprocessing
@@ -642,7 +642,6 @@ async def upload_and_process(
                         pass
 
             # Apply face blur
-            from app.services.face_blur_service import apply_face_blur  # noqa: F811
             try:
                 result_bytes, face_count, total_regions = await asyncio.to_thread(
                     apply_face_blur, file_bytes, blur_style, manual_regions, emoji_type, False,

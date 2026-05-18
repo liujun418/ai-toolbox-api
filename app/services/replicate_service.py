@@ -518,3 +518,42 @@ async def run_pdf_restructure(ocr_text: str) -> str:
 
     output = await retry_with_backoff(_call)
     return "".join(list(output)).strip()
+
+
+# ── Face Detection ──────────────────────────────────────────────────
+
+FACE_DETECTION_MODEL = "adirik/grounding-dino:efd10a8ddc57ea28773327e881ce95e20cc1d734c589f7dd01d2036921ed78aa"
+
+
+async def run_face_detection(image_url: str) -> list[dict]:
+    """Detect faces using Grounding DINO on Replicate.
+
+    Returns list of {x, y, w, h} in pixel coordinates.
+    Each detection has confidence >= box_threshold.
+    """
+    async def _call():
+        return await _run_model(
+            FACE_DETECTION_MODEL,
+            input={
+                "image": image_url,
+                "query": "human face",
+                "box_threshold": 0.35,
+                "text_threshold": 0.2,
+                "show_visualisation": False,
+            },
+        )
+
+    output = await retry_with_backoff(_call)
+    detections = output.get("detections", []) if isinstance(output, dict) else []
+    faces = []
+    for det in detections:
+        bbox = det.get("bbox", [])
+        if len(bbox) == 4:
+            faces.append({
+                "x": int(bbox[0]),
+                "y": int(bbox[1]),
+                "w": int(bbox[2] - bbox[0]),
+                "h": int(bbox[3] - bbox[1]),
+            })
+    logger.info("Face detection: found %d faces in image", len(faces))
+    return faces
