@@ -58,6 +58,61 @@ def _estimate_body_font_size(all_blocks: list) -> float:
     return float(counter.most_common(1)[0][0])
 
 
+def _extract_images_from_page(page, doc) -> list[dict]:
+    """Extract embedded images from a PDF page with their bounding boxes.
+
+    Matches image blocks (type=1) from the page dict with actual image data
+    from xref extraction. Returns list of {bbox, image_bytes, ext}.
+    """
+    images = []
+    try:
+        # Get all image blocks (type=1) with their positions
+        page_dict = page.get_text("dict")
+        image_blocks = [b for b in page_dict["blocks"] if b["type"] == 1]
+
+        # Get all image xrefs on this page
+        img_infos = page.get_images(full=True)
+
+        for i, blk in enumerate(image_blocks):
+            bbox = blk.get("bbox", page.rect)
+            # Match by order (image blocks and xrefs are typically in the same order)
+            if i < len(img_infos):
+                xref = img_infos[i][0]
+                try:
+                    base_image = doc.extract_image(xref)
+                    img_bytes = base_image["image"]
+                    ext = base_image["ext"]
+                    images.append({
+                        "bbox": bbox,
+                        "image_bytes": img_bytes,
+                        "ext": ext,
+                    })
+                except Exception:
+                    pass
+    except Exception:
+        pass
+    return images
+
+
+def _add_image_to_docx(docx, image_bytes: bytes, ext: str, max_width: float = 6.0):
+    """Embed an image into the docx, scaled to fit max_width inches."""
+    import io as _io
+    from PIL import Image as _PILImage
+
+    img_stream = _io.BytesIO(image_bytes)
+    try:
+        pil_img = _PILImage.open(img_stream)
+        w, h = pil_img.size
+        aspect = h / max(w, 1)
+        width = min(max_width, w / 72)  # cap at max_width inches or native size
+        height = width * aspect
+        img_stream.seek(0)
+        docx.add_picture(img_stream, width=Inches(width), height=Inches(height))
+    except Exception:
+        docx.add_picture(img_stream, width=Inches(max_width))
+    docx.add_paragraph()  # spacing
+
+
 def _extract_blocks_from_page(page) -> list[dict]:
     """Extract text blocks from a page using PyMuPDF's built-in block grouping.
 
@@ -270,8 +325,9 @@ async def convert_pdf_to_word(pdf_file_bytes: bytes, filename: str) -> bytes:
     pdf_stream = io.BytesIO(pdf_file_bytes)
     pdf = fitz.open(stream=pdf_stream, filetype="pdf")
 
-    # Pass 1: collect all blocks and tables
+    # Pass 1: collect all blocks, images, and tables
     all_pages_blocks = []
+    all_pages_images = []
     all_pages_tables = []
     page_heights = []
 
@@ -281,8 +337,10 @@ async def convert_pdf_to_word(pdf_file_bytes: bytes, filename: str) -> bytes:
         page_heights.append(page_rect.height)
 
         blocks = _extract_blocks_from_page(page)
+        images = _extract_images_from_page(page, pdf)
         tables = _extract_tables_from_page(page)
         all_pages_blocks.append(blocks)
+        all_pages_images.append(images)
         all_pages_tables.append(tables)
 
     # Estimate body font size from all blocks
@@ -302,6 +360,7 @@ async def convert_pdf_to_word(pdf_file_bytes: bytes, filename: str) -> bytes:
 
     for page_num in range(len(pdf)):
         blocks = all_pages_blocks[page_num]
+        images = all_pages_images[page_num]
         tables = all_pages_tables[page_num]
         page_h = page_heights[page_num]
 
@@ -317,17 +376,18 @@ async def convert_pdf_to_word(pdf_file_bytes: bytes, filename: str) -> bytes:
         blocks_with_idx = [(bi, blk) for bi, blk in enumerate(blocks)]
         blocks_with_idx.sort(key=lambda x: x[1]["bbox"][1])
 
-        # Interleave tables and text blocks by Y position
+        # Interleave text blocks, images, and tables by Y position
         elements = []
 
-        # Build list of (y_position, type, data)
         for bi, blk in blocks_with_idx:
             if bi in overlapped_indices:
                 continue
-            # Skip header/footer blocks (but keep if they're the only content)
             if len(blocks) > 3 and _is_header_footer(blk["bbox"], page_h):
                 continue
             elements.append((blk["bbox"][1], "text", blk))
+
+        for img in images:
+            elements.append((img["bbox"][1], "image", img))
 
         for table in tables:
             elements.append((table["bbox"][1], "table", table))
@@ -338,6 +398,9 @@ async def convert_pdf_to_word(pdf_file_bytes: bytes, filename: str) -> bytes:
         for _, elem_type, data in elements:
             if elem_type == "table":
                 _add_table_to_docx(docx, data["rows"])
+                total_elements += 1
+            elif elem_type == "image":
+                _add_image_to_docx(docx, data["image_bytes"], data["ext"])
                 total_elements += 1
             elif elem_type == "text":
                 _add_formatted_paragraph(docx, data["lines"], body_font_size)
