@@ -1,10 +1,9 @@
 """PDF to Word conversion using PyMuPDF + python-docx.
 
-Smart paragraph grouping: consecutive lines with similar font size,
-Y-proximity, and indentation are merged into one paragraph.
+Text PDFs: PyMuPDF block-level text extraction + table detection + header/footer filtering.
 Heading detection: text with font size >= 1.3x body size becomes a heading.
 
-For scanned/image-based PDFs: Markdown (from OCR + LLM) → .docx.
+For scanned/image-based PDFs: OCR → LLM restructure → markdown → .docx.
 """
 
 import io
@@ -47,101 +46,135 @@ def is_scanned_pdf(file_bytes: bytes) -> bool:
     return False
 
 
-def _estimate_body_font_size(all_lines: list) -> float:
-    """Find the most common font size (mode), which is usually the body text size."""
+def _estimate_body_font_size(all_blocks: list) -> float:
+    """Find the most common font size (mode) across all blocks."""
     sizes = []
-    for line_info in all_lines:
-        sizes.append(round(line_info["font_size"]))
+    for blk in all_blocks:
+        for li in blk.get("lines", []):
+            sizes.append(round(li["font_size"]))
     if not sizes:
         return 11.0
     counter = Counter(sizes)
     return float(counter.most_common(1)[0][0])
 
 
-def _extract_lines_from_page(page) -> list[dict]:
-    """Extract text lines from a page with position and formatting metadata."""
-    lines = []
+def _extract_blocks_from_page(page) -> list[dict]:
+    """Extract text blocks from a page using PyMuPDF's built-in block grouping.
+
+    PyMuPDF already groups related text into logical blocks — far more reliable
+    than line-by-line heuristic merging. Each block typically corresponds to
+    a paragraph, heading, or other logical unit.
+    """
+    blocks = []
     try:
-        blocks = page.get_text("dict")["blocks"]
-        for block in blocks:
-            if block["type"] != 0:
+        page_dict = page.get_text("dict")
+        for raw_block in page_dict["blocks"]:
+            if raw_block["type"] != 0:  # Skip image blocks
                 continue
-            for line in block["lines"]:
-                text = "".join([span["text"] for span in line["spans"]])
-                if not text.strip():
+
+            block_bbox = raw_block.get("bbox", (0, 0, 0, 0))
+            lines = []
+            all_font_sizes = []
+
+            for line in raw_block.get("lines", []):
+                if not line.get("spans"):
                     continue
                 first_span = line["spans"][0]
+                text = "".join(s["text"] for s in line["spans"])
+                if not text.strip():
+                    continue
+
                 font_size = first_span.get("size", 11)
                 font_name = first_span.get("font", "")
                 is_bold = "Bold" in font_name
                 is_italic = "Italic" in font_name or "Oblique" in font_name
-                bbox = line.get("bbox", (0, 0, 0, 0))
+                line_bbox = line.get("bbox", block_bbox)
+
                 lines.append({
                     "text": text.strip(),
                     "font_size": font_size,
                     "font_name": font_name,
                     "is_bold": is_bold,
                     "is_italic": is_italic,
-                    "x0": bbox[0],
-                    "y0": bbox[1],
-                    "x1": bbox[2],
-                    "y1": bbox[3],
+                    "x0": line_bbox[0],
+                    "y0": line_bbox[1],
+                    "x1": line_bbox[2],
+                    "y1": line_bbox[3],
+                })
+                all_font_sizes.append(font_size)
+
+            if not lines:
+                continue
+
+            avg_font_size = sum(all_font_sizes) / len(all_font_sizes)
+            max_font_size = max(all_font_sizes)
+
+            blocks.append({
+                "lines": lines,
+                "bbox": block_bbox,
+                "avg_font_size": avg_font_size,
+                "max_font_size": max_font_size,
+            })
+    except Exception:
+        pass
+
+    return blocks
+
+
+def _extract_tables_from_page(page) -> list[dict]:
+    """Detect tables on a page using PyMuPDF's built-in table detection."""
+    tables = []
+    try:
+        found = page.find_tables()
+        if found and found.tables:
+            for table in found.tables:
+                cells = table.extract()
+                if not cells or all(not any(c for c in row) for row in cells):
+                    continue
+                tables.append({
+                    "bbox": table.bbox,
+                    "rows": cells,
                 })
     except Exception:
         pass
-    return lines
+    return tables
 
 
-def _group_lines_into_paragraphs(lines: list, body_font_size: float) -> list[dict]:
-    """Group consecutive lines into paragraphs.
+def _bbox_overlaps(bbox1, bbox2, threshold: float = 0.5) -> bool:
+    """Check if bbox1 significantly overlaps with bbox2."""
+    x0_1, y0_1, x1_1, y1_1 = bbox1
+    x0_2, y0_2, x1_2, y1_2 = bbox2
 
-    Two consecutive lines are in the same paragraph when ALL conditions hold:
-    1. Vertical gap <= 1.2 * actual line height (measured from previous pair)
-    2. Same font size (or within 1pt for body text)
-    3. Similar indentation (x0 within 5pt)
+    ix0 = max(x0_1, x0_2)
+    iy0 = max(y0_1, y0_2)
+    ix1 = min(x1_1, x1_2)
+    iy1 = min(y1_1, y1_2)
 
-    A heading breaks from body text when font size is significantly larger.
-    A gap larger than the typical line spacing also starts a new paragraph.
-    """
-    if not lines:
-        return []
+    if ix0 >= ix1 or iy0 >= iy1:
+        return False
 
-    paragraphs = []
-    current_lines = [lines[0]]
+    intersection = (ix1 - ix0) * (iy1 - iy0)
+    area1 = (x1_1 - x0_1) * (y1_1 - y0_1)
+    return intersection / max(area1, 1) > threshold
 
-    for i in range(1, len(lines)):
-        prev = lines[i - 1]
-        curr = lines[i]
 
-        vertical_gap = curr["y0"] - prev["y1"]
-        font_diff = abs(curr["font_size"] - prev["font_size"])
-        indent_diff = abs(curr["x0"] - prev["x0"])
+def _is_header_footer(bbox, page_height: float, margin_ratio: float = 0.15) -> bool:
+    """Check if a text block is in the header or footer zone."""
+    y0, y1 = bbox[1], bbox[3]
+    return y1 < page_height * margin_ratio or y0 > page_height * (1 - margin_ratio)
 
-        # Calculate typical line height from what we've seen so far
-        if len(current_lines) >= 2:
-            typical_line_h = current_lines[-1]["y1"] - current_lines[-1]["y0"]
-        else:
-            typical_line_h = body_font_size * 1.2
 
-        gap_threshold = typical_line_h * 1.2
+_LIST_PATTERNS = [
+    re.compile(r'^\s*[\-\•\*\▪\▸\➤\–\—]\s'),
+    re.compile(r'^\s*\d+[\.\)]\s'),
+    re.compile(r'^\s*[a-zA-Z][\.\)]\s'),
+    re.compile(r'^\s*\([a-zA-Z\d]+\)\s'),
+]
 
-        # New paragraph if any condition fails
-        new_paragraph = (
-            vertical_gap > gap_threshold       # gap too large
-            or font_diff > body_font_size * 0.15  # font size changed significantly
-            or indent_diff > 5                   # indentation changed
-        )
 
-        if new_paragraph:
-            paragraphs.append({"lines": current_lines})
-            current_lines = [curr]
-        else:
-            current_lines.append(curr)
-
-    if current_lines:
-        paragraphs.append({"lines": current_lines})
-
-    return paragraphs
+def _is_list_item(text: str) -> bool:
+    """Check if text looks like a bullet or numbered list item."""
+    return any(p.match(text) for p in _LIST_PATTERNS)
 
 
 def _apply_run_styling(run, line_info: dict):
@@ -172,18 +205,31 @@ def _set_paragraph_spacing(p, space_before=0, space_after=6):
 
 
 def _add_formatted_paragraph(docx, lines: list, body_font_size: float):
-    """Add a paragraph to the docx with proper formatting."""
+    """Add a paragraph to the docx with proper formatting.
+
+    Detects headings, list items, and regular paragraphs.
+    """
+    joined_text = " ".join(l["text"] for l in lines)
     is_heading = any(l["font_size"] >= body_font_size * 1.3 for l in lines)
+    is_list = len(lines) == 1 and _is_list_item(lines[0]["text"])
 
     p = docx.add_paragraph()
 
     if is_heading:
         heading_size = max(l["font_size"] for l in lines)
         heading_size = min(heading_size, 28)
-        run = p.add_run(" ".join(l["text"] for l in lines))
+        run = p.add_run(joined_text)
         run.font.size = Pt(heading_size)
         run.bold = True
         _set_paragraph_spacing(p, space_before=12, space_after=6)
+    elif is_list:
+        # Use single-line text as-is, preserving the bullet/number prefix
+        for i, line_info in enumerate(lines):
+            separator = "" if i == 0 else " "
+            run = p.add_run(separator + line_info["text"])
+            _apply_run_styling(run, line_info)
+        _set_paragraph_spacing(p, space_before=0, space_after=2)
+        p.paragraph_format.left_indent = Inches(0.25)
     else:
         for i, line_info in enumerate(lines):
             separator = "" if i == 0 else " "
@@ -192,24 +238,56 @@ def _add_formatted_paragraph(docx, lines: list, body_font_size: float):
         _set_paragraph_spacing(p, space_before=0, space_after=6)
 
 
+def _add_table_to_docx(docx, rows: list[list[str]]):
+    """Build a docx table from PyMuPDF table extraction output."""
+    if not rows:
+        return
+    num_cols = max(len(r) for r in rows)
+    num_rows = len(rows)
+    table = docx.add_table(rows=num_rows, cols=num_cols, style="Table Grid")
+    for r_idx, row in enumerate(rows):
+        for c_idx, cell_text in enumerate(row):
+            if c_idx < num_cols:
+                cell = table.cell(r_idx, c_idx)
+                cell.text = ""
+                p = cell.paragraphs[0]
+                run = p.add_run(str(cell_text or ""))
+                run.font.size = Pt(9)
+                if r_idx == 0:
+                    run.bold = True
+                _set_paragraph_spacing(p, space_before=0, space_after=0)
+    docx.add_paragraph()  # spacing after table
+
+
 async def convert_pdf_to_word(pdf_file_bytes: bytes, filename: str) -> bytes:
-    """Convert PDF to DOCX using PyMuPDF text extraction with smart grouping.
+    """Convert PDF to DOCX using PyMuPDF block-level text extraction + table detection.
+
+    Uses PyMuPDF's built-in block grouping for reliable paragraph detection,
+    find_tables() for table extraction, and filters out headers/footers.
 
     Raises ValueError if no text can be extracted (e.g. scanned/image PDF).
     """
     pdf_stream = io.BytesIO(pdf_file_bytes)
     pdf = fitz.open(stream=pdf_stream, filetype="pdf")
 
-    # Pass 1: collect all lines
-    all_pages_lines = []
+    # Pass 1: collect all blocks and tables
+    all_pages_blocks = []
+    all_pages_tables = []
+    page_heights = []
+
     for page_num in range(len(pdf)):
         page = pdf[page_num]
-        page_lines = _extract_lines_from_page(page)
-        all_pages_lines.append(page_lines)
+        page_rect = page.rect
+        page_heights.append(page_rect.height)
 
-    # Estimate body font size
-    all_lines_flat = [line for page_lines in all_pages_lines for line in page_lines]
-    body_font_size = _estimate_body_font_size(all_lines_flat)
+        blocks = _extract_blocks_from_page(page)
+        tables = _extract_tables_from_page(page)
+        all_pages_blocks.append(blocks)
+        all_pages_tables.append(tables)
+
+    # Estimate body font size from all blocks
+    all_blocks_flat = [blk for page_blocks in all_pages_blocks for blk in page_blocks]
+    body_font_size = _estimate_body_font_size(all_blocks_flat)
 
     docx = Document()
 
@@ -220,21 +298,58 @@ async def convert_pdf_to_word(pdf_file_bytes: bytes, filename: str) -> bytes:
     style.paragraph_format.space_before = Pt(0)
     style.paragraph_format.space_after = Pt(0)
 
-    total_paragraphs = 0
+    total_elements = 0
 
-    for page_num, page_lines in enumerate(all_pages_lines):
-        paragraphs = _group_lines_into_paragraphs(page_lines, body_font_size)
+    for page_num in range(len(pdf)):
+        blocks = all_pages_blocks[page_num]
+        tables = all_pages_tables[page_num]
+        page_h = page_heights[page_num]
 
-        for pg in paragraphs:
-            _add_formatted_paragraph(docx, pg["lines"], body_font_size)
-            total_paragraphs += 1
+        # Mark blocks that overlap with tables (to avoid duplicate text)
+        overlapped_indices = set()
+        if tables:
+            for ti, table in enumerate(tables):
+                for bi, blk in enumerate(blocks):
+                    if _bbox_overlaps(blk["bbox"], table["bbox"]):
+                        overlapped_indices.add(bi)
 
-        if page_num < len(all_pages_lines) - 1:
+        # Sort blocks by Y position (top to bottom)
+        blocks_with_idx = [(bi, blk) for bi, blk in enumerate(blocks)]
+        blocks_with_idx.sort(key=lambda x: x[1]["bbox"][1])
+
+        # Interleave tables and text blocks by Y position
+        elements = []
+
+        # Build list of (y_position, type, data)
+        for bi, blk in blocks_with_idx:
+            if bi in overlapped_indices:
+                continue
+            # Skip header/footer blocks (but keep if they're the only content)
+            if len(blocks) > 3 and _is_header_footer(blk["bbox"], page_h):
+                continue
+            elements.append((blk["bbox"][1], "text", blk))
+
+        for table in tables:
+            elements.append((table["bbox"][1], "table", table))
+
+        # Sort all elements by Y position
+        elements.sort(key=lambda x: x[0])
+
+        for _, elem_type, data in elements:
+            if elem_type == "table":
+                _add_table_to_docx(docx, data["rows"])
+                total_elements += 1
+            elif elem_type == "text":
+                _add_formatted_paragraph(docx, data["lines"], body_font_size)
+                total_elements += 1
+
+        # Page break between pages (except last)
+        if page_num < len(all_pages_blocks) - 1:
             docx.add_page_break()
 
     pdf.close()
 
-    if total_paragraphs == 0:
+    if total_elements == 0:
         raise ValueError(
             "This PDF appears to be a scanned document or image without a text layer. "
             "PDF to Word conversion requires PDFs with selectable text. "
@@ -390,21 +505,20 @@ def _build_table(doc, rows):
 async def convert_scanned_pdf_to_word(
     pdf_file_bytes: bytes,
     filename: str,
-    ocr_markdown: str,
+    ocr_text: str,
     restructured_markdown: str,
     page_images: list[bytes] | None = None,
 ) -> bytes:
-    """Convert scanned PDF to Word using OCR + LLM markdown or image embedding.
+    """Convert scanned PDF to Word using OCR + LLM markdown, with image fallback.
 
-    For scanned PDFs where OCR is unavailable, embeds page images in the .docx.
-    For pages with text layers, uses the markdown content.
+    Prefers structured markdown (from LLM restructure) over raw OCR text.
+    Falls back to image embedding only when no usable text is available.
     """
-    if page_images:
-        # Image-based pages: embed images in .docx
-        return _images_to_docx(page_images, filename)
-    # Text-based pages: use markdown conversion
-    source = restructured_markdown if restructured_markdown.strip() else ocr_markdown
-    return markdown_to_docx(source)
+    source = restructured_markdown.strip() or ocr_text.strip()
+    if source:
+        return markdown_to_docx(source)
+    # No usable text: embed page images as last resort
+    return _images_to_docx(page_images or [], filename)
 
 
 def _images_to_docx(page_images: list[bytes], filename: str = "document") -> bytes:

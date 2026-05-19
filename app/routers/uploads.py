@@ -746,14 +746,14 @@ async def upload_and_process(
             credits_needed = actual_cost
 
             if scanned:
-                # Scanned PDF path: render pages → embed images in .docx
+                # Scanned PDF path: OCR → LLM restructure → .docx
                 pdf_key = generate_upload_key(file.filename or "document.pdf", user.id)
                 await upload_file(file_bytes, pdf_key, "application/pdf")
                 pdf_url = generate_presigned_url(pdf_key, expires_in=3600)
 
                 try:
                     ocr_text, page_images = await run_pdf_ocr(pdf_url)
-                    logger.info("Scanned PDF processed for task %s: %d text chars, %d image pages",
+                    logger.info("Scanned PDF OCR for task %s: %d text chars, %d image pages",
                                 task_id, len(ocr_text), len(page_images))
                 except Exception as e:
                     raise HTTPException(
@@ -761,9 +761,20 @@ async def upload_and_process(
                         detail=f"PDF processing failed: {_friendly_error(str(e), 'pdf-to-word')}",
                     )
 
+                # Run Llama 3.1 405B to rebuild document structure from OCR text
+                restructured = ""
+                if ocr_text.strip():
+                    try:
+                        restructured = await run_pdf_restructure(ocr_text)
+                        logger.info("Restructured scanned PDF for task %s: %d chars → %d chars",
+                                    task_id, len(ocr_text), len(restructured))
+                    except Exception as e:
+                        logger.warning("PDF restructure failed for task %s, using raw OCR: %s",
+                                       task_id, str(e)[:200])
+
                 docx_bytes = await convert_scanned_pdf_to_word(
                     file_bytes, file.filename or "document.pdf",
-                    ocr_text, "", page_images,
+                    ocr_text, restructured, page_images,
                 )
             else:
                 # Text PDF path: PyMuPDF extraction (fast, no API calls)

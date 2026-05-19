@@ -457,21 +457,24 @@ async def run_ai_image_generation(
 # ── PDF OCR ─────────────────────────────────────────────────────────
 
 async def run_pdf_ocr(file_url: str) -> tuple[str, list[bytes]]:
-    """Extract text from PDF pages. For scanned/image PDFs, renders pages as images.
+    """Extract text from PDF pages using Tesseract OCR.
+
+    For pages with existing text layers, extracts text directly via PyMuPDF.
+    For scanned/image pages without text, renders at 200 DPI and runs
+    Tesseract OCR to extract text.
 
     Returns (ocr_text, page_images) where:
-    - ocr_text: empty string for scanned PDFs (OCR unavailable via Replicate)
-    - page_images: list of PNG bytes for each page (for image embedding fallback)
+    - ocr_text: concatenated text from all pages with page markers
+    - page_images: list of PNG bytes for pages that needed OCR (fallback)
     """
     import io as _io
     import fitz as _fitz
     import httpx as _httpx
+    import pytesseract as _pytesseract
 
-    # Download PDF from presigned URL
     resp = _httpx.get(file_url, follow_redirects=True, timeout=30)
     pdf_bytes = resp.content
 
-    # Convert each page to an image
     pdf_stream = _io.BytesIO(pdf_bytes)
     doc = _fitz.open(stream=pdf_stream, filetype="pdf")
     page_images = []
@@ -479,16 +482,23 @@ async def run_pdf_ocr(file_url: str) -> tuple[str, list[bytes]]:
 
     for page_num in range(len(doc)):
         page = doc[page_num]
-        # Check if page has text layer
         page_text = page.get_text().strip()
+
         if len(page_text) >= 20:
+            # Page has text layer — use directly
             ocr_text_parts.append(page_text)
         else:
-            # Render page to image
-            pix = page.get_pixmap(dpi=150)
+            # Scanned page — render at 200 DPI and run Tesseract OCR
+            pix = page.get_pixmap(dpi=200)
             img_bytes = pix.tobytes("png")
             page_images.append(img_bytes)
-            ocr_text_parts.append(f"[Page {page_num + 1}: image-based, see embedded image]")
+
+            img = Image.open(_io.BytesIO(img_bytes))
+            ocr_result = _pytesseract.image_to_string(img, lang="eng+chi_sim")
+            if ocr_result.strip():
+                ocr_text_parts.append(ocr_result.strip())
+            else:
+                ocr_text_parts.append(f"[Page {page_num + 1}: no text detected]")
 
     doc.close()
 
