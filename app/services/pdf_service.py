@@ -46,6 +46,42 @@ def is_scanned_pdf(file_bytes: bytes) -> bool:
     return False
 
 
+def _normalize_font_name(raw_name: str) -> str:
+    """Clean PDF-internal font names to standard font family names.
+
+    PyMuPDF reports names like 'ABCDEE+Helvetica-Bold' or 'TimesNewRomanPSMT'.
+    We strip random prefixes and map common PostScript names to clean names.
+    """
+    if not raw_name:
+        return "Arial"
+
+    name = raw_name.strip()
+
+    # Strip subset prefix (e.g., "ABCDEE+")
+    if "+" in name and len(name.split("+")[0]) == 6:
+        name = name.split("+", 1)[1]
+
+    # Normalize common PostScript/PDF font naming conventions
+    name = name.replace("PSMT", "").replace("MT", "").replace("PS", "")
+    name = name.replace("-", " ").replace("_", " ")
+    name = " ".join(name.split())  # collapse whitespace
+
+    # Map known short/weird names
+    mapping = {
+        "TimesNewRoman": "Times New Roman",
+        "Times": "Times New Roman",
+        "Helvetica": "Arial",
+        "Courier": "Courier New",
+        "Symbol": "Symbol",
+        "ZapfDingbats": "Zapf Dingbats",
+    }
+    for key, val in mapping.items():
+        if key.lower() in name.lower():
+            return val
+
+    return name.strip() or "Arial"
+
+
 def _estimate_body_font_size(all_blocks: list) -> float:
     """Find the most common font size (mode) across all blocks."""
     sizes = []
@@ -140,9 +176,9 @@ def _extract_blocks_from_page(page) -> list[dict]:
                     continue
 
                 font_size = first_span.get("size", 11)
-                font_name = first_span.get("font", "")
-                is_bold = "Bold" in font_name
-                is_italic = "Italic" in font_name or "Oblique" in font_name
+                font_name = _normalize_font_name(first_span.get("font", ""))
+                is_bold = "Bold" in (first_span.get("font", "") or "")
+                is_italic = "Italic" in (first_span.get("font", "") or "") or "Oblique" in (first_span.get("font", "") or "")
                 line_bbox = line.get("bbox", block_bbox)
 
                 lines.append({

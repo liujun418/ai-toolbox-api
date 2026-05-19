@@ -268,6 +268,21 @@ PDF_RESTRUCTURE_SYSTEM_PROMPT = (
     "meta-commentary — just the document content."
 )
 
+PDF_VISION_EXTRACTION_PROMPT = (
+    "Extract ALL text content from this document page image with maximum accuracy. "
+    "Output clean markdown that preserves the document's full structure.\n\n"
+    "Rules:\n"
+    "- Transcribe every visible word, number, and symbol exactly as it appears\n"
+    "- Preserve heading hierarchy: # title, ## section, ### subsection\n"
+    "- Format tables as markdown tables (| col | col |)\n"
+    "- Use - for bullet lists, 1. 2. for numbered lists\n"
+    "- Preserve ALL paragraph breaks and section boundaries\n"
+    "- Keep exact numbers, dates, prices, names, and technical terms\n"
+    "- If text is bold/large, use markdown **bold**\n"
+    "- Note images/figures as [Image: brief description if captioned]\n\n"
+    "Output ONLY the markdown. No preamble, no explanations, no \"Here is the extracted text:\"."
+)
+
 # ── Avatar Generator: per-style locked generation parameters ──────
 AVATAR_PARAMS: dict[str, dict] = {
     "cartoon": {
