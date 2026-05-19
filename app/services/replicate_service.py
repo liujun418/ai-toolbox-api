@@ -458,20 +458,21 @@ async def run_ai_image_generation(
 # ── PDF OCR ─────────────────────────────────────────────────────────
 
 async def run_pdf_ocr(file_url: str) -> tuple[str, list[bytes]]:
-    """Extract text from PDF pages using vision model for image-based pages.
+    """Extract text from PDF pages using Tesseract OCR with preprocessing.
 
-    For pages with text layers, extracts text directly via PyMuPDF.
-    For scanned/image pages without text, renders at 200 DPI and sends to
-    a vision-capable LLM (Llama 3.2 90B Vision) for high-accuracy extraction.
+    For pages with existing text layers, extracts text directly via PyMuPDF.
+    For scanned/image pages without text, renders at 300 DPI with grayscale,
+    contrast enhancement, and sharpening before OCR.
 
     Returns (ocr_text, page_images) where:
     - ocr_text: concatenated text from all pages with page markers
     - page_images: list of PNG bytes for pages that needed OCR (fallback)
     """
     import io as _io
-    import base64 as _base64
     import fitz as _fitz
     import httpx as _httpx
+    import pytesseract as _pytesseract
+    from PIL import ImageEnhance, ImageFilter
 
     resp = _httpx.get(file_url, follow_redirects=True, timeout=30)
     pdf_bytes = resp.content
@@ -488,48 +489,36 @@ async def run_pdf_ocr(file_url: str) -> tuple[str, list[bytes]]:
         if len(page_text) >= 20:
             ocr_text_parts.append(page_text)
         else:
-            # Render scanned page at 200 DPI
-            pix = page.get_pixmap(dpi=200)
+            # Render at 300 DPI for best OCR fidelity
+            pix = page.get_pixmap(dpi=300)
             img_bytes = pix.tobytes("png")
             page_images.append(img_bytes)
 
-            # Send to vision model for high-accuracy text extraction
-            img_b64 = _base64.b64encode(img_bytes).decode("utf-8")
-            data_uri = f"data:image/png;base64,{img_b64}"
+            # Preprocess for OCR: grayscale + contrast enhance + sharpen
+            img = Image.open(_io.BytesIO(img_bytes))
+            img = img.convert("L")
+            img = ImageEnhance.Contrast(img).enhance(2.0)
+            img = img.filter(ImageFilter.SHARPEN)
 
-            try:
-                ocr_result = await _run_vision_extraction(data_uri)
+            # PSM 6 = uniform block of text; PSM 4 = single column
+            # Try PSM 4 first, fall back to PSM 6
+            for psm in [4, 6]:
+                ocr_result = _pytesseract.image_to_string(
+                    img, lang="eng+chi_sim",
+                    config=f"--psm {psm} --oem 1",
+                )
                 if ocr_result.strip():
-                    ocr_text_parts.append(ocr_result.strip())
-                else:
-                    ocr_text_parts.append(f"[Page {page_num + 1}: no text detected]")
-            except Exception as e:
-                logger.warning("Vision OCR failed for page %d: %s", page_num + 1, str(e)[:200])
-                ocr_text_parts.append(f"[Page {page_num + 1}: extraction failed — see embedded image]")
+                    break
+
+            if ocr_result.strip():
+                ocr_text_parts.append(ocr_result.strip())
+            else:
+                ocr_text_parts.append(f"[Page {page_num + 1}: no text detected]")
 
     doc.close()
 
     ocr_text = "\n\n".join(ocr_text_parts)
     return ocr_text, page_images
-
-
-async def _run_vision_extraction(image_data_uri: str) -> str:
-    """Send a page image to Llama 3.2 90B Vision for text extraction."""
-    async def _call():
-        client = _get_client()
-        return await asyncio.to_thread(
-            client.run,
-            "meta/meta-llama-3.2-90b-vision-instruct",
-            input={
-                "image": image_data_uri,
-                "prompt": PDF_VISION_EXTRACTION_PROMPT,
-                "max_tokens": 4096,
-                "temperature": 0.1,
-            },
-        )
-
-    output = await retry_with_backoff(_call)
-    return "".join(list(output)).strip()
 
 
 async def run_pdf_restructure(ocr_text: str) -> str:
