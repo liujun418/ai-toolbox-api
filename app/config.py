@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     JWT_SECRET_KEY: str = "change-me-in-production"
     FRONTEND_URL: str = "http://localhost:3000"
     RESEND_API_KEY: str = ""
+    GOOGLE_VISION_API_KEY: str = ""
 
     # Image processing limits
     MAX_IMAGE_SIZE_BYTES: int = 10 * 1024 * 1024  # 10MB

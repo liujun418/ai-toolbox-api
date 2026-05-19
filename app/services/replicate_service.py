@@ -458,21 +458,20 @@ async def run_ai_image_generation(
 # ── PDF OCR ─────────────────────────────────────────────────────────
 
 async def run_pdf_ocr(file_url: str) -> tuple[str, list[bytes]]:
-    """Extract text from PDF pages using Tesseract OCR with preprocessing.
+    """Extract text from PDF pages using Google Cloud Vision for scanned pages.
 
     For pages with existing text layers, extracts text directly via PyMuPDF.
-    For scanned/image pages without text, renders at 300 DPI with grayscale,
-    contrast enhancement, and sharpening before OCR.
+    For scanned/image pages without text, renders at 200 DPI and sends to
+    Google Cloud Vision DOCUMENT_TEXT_DETECTION for high-accuracy OCR.
 
     Returns (ocr_text, page_images) where:
     - ocr_text: concatenated text from all pages with page markers
     - page_images: list of PNG bytes for pages that needed OCR (fallback)
     """
     import io as _io
+    import base64 as _base64
     import fitz as _fitz
     import httpx as _httpx
-    import pytesseract as _pytesseract
-    from PIL import ImageEnhance, ImageFilter
 
     resp = _httpx.get(file_url, follow_redirects=True, timeout=30)
     pdf_bytes = resp.content
@@ -489,36 +488,63 @@ async def run_pdf_ocr(file_url: str) -> tuple[str, list[bytes]]:
         if len(page_text) >= 20:
             ocr_text_parts.append(page_text)
         else:
-            # Render at 300 DPI for best OCR fidelity
-            pix = page.get_pixmap(dpi=300)
+            # Render scanned page at 200 DPI (Vision API max image is 20MB)
+            pix = page.get_pixmap(dpi=200)
             img_bytes = pix.tobytes("png")
             page_images.append(img_bytes)
 
-            # Preprocess for OCR: grayscale + contrast enhance + sharpen
-            img = Image.open(_io.BytesIO(img_bytes))
-            img = img.convert("L")
-            img = ImageEnhance.Contrast(img).enhance(2.0)
-            img = img.filter(ImageFilter.SHARPEN)
-
-            # PSM 6 = uniform block of text; PSM 4 = single column
-            # Try PSM 4 first, fall back to PSM 6
-            for psm in [4, 6]:
-                ocr_result = _pytesseract.image_to_string(
-                    img, lang="eng+chi_sim",
-                    config=f"--psm {psm} --oem 1",
-                )
+            try:
+                ocr_result = await _google_vision_ocr(img_bytes)
                 if ocr_result.strip():
-                    break
-
-            if ocr_result.strip():
-                ocr_text_parts.append(ocr_result.strip())
-            else:
-                ocr_text_parts.append(f"[Page {page_num + 1}: no text detected]")
+                    ocr_text_parts.append(ocr_result.strip())
+                else:
+                    ocr_text_parts.append(f"[Page {page_num + 1}: no text detected]")
+            except Exception as e:
+                logger.warning("Google Vision OCR failed for page %d: %s",
+                               page_num + 1, str(e)[:200])
+                ocr_text_parts.append(f"[Page {page_num + 1}: extraction failed]")
 
     doc.close()
 
     ocr_text = "\n\n".join(ocr_text_parts)
     return ocr_text, page_images
+
+
+async def _google_vision_ocr(image_bytes: bytes) -> str:
+    """Extract text from an image using Google Cloud Vision DOCUMENT_TEXT_DETECTION."""
+    import base64 as _base64
+    import httpx as _httpx
+
+    api_key = settings.GOOGLE_VISION_API_KEY
+    if not api_key:
+        raise RuntimeError("GOOGLE_VISION_API_KEY is not configured")
+
+    img_b64 = _base64.b64encode(image_bytes).decode("utf-8")
+
+    async with _httpx.AsyncClient(timeout=30) as client:
+        resp = await client.post(
+            f"https://vision.googleapis.com/v1/images:annotate?key={api_key}",
+            json={
+                "requests": [{
+                    "image": {"content": img_b64},
+                    "features": [{"type": "DOCUMENT_TEXT_DETECTION", "maxResults": 1}],
+                }],
+            },
+        )
+        if resp.status_code != 200:
+            raise RuntimeError(f"Vision API error {resp.status_code}: {resp.text[:300]}")
+
+        data = resp.json()
+        responses = data.get("responses", [])
+        if not responses:
+            return ""
+
+        result = responses[0]
+        if "error" in result:
+            raise RuntimeError(f"Vision API error: {result['error']}")
+
+        annotation = result.get("fullTextAnnotation", {})
+        return annotation.get("text", "")
 
 
 async def run_pdf_restructure(ocr_text: str) -> str:
