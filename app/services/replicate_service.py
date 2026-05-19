@@ -681,13 +681,10 @@ async def run_object_removal(image_url: str, mask_url: str) -> str:
 
 # ── Article Generator ──────────────────────────────────────────────
 
-async def run_article_generation(topic: str, keywords: str = "", tone: str = "", word_count: str = "medium") -> str:
+async def run_article_generation(topic: str, keywords: str = "", tone: str = "", word_count: int = 600) -> str:
     """Generate a structured article using Llama 3 70B."""
     lang = _detect_language(topic + " " + keywords)
-
-    # Word count guidance per language
-    wc_map = {"short": 300, "medium": 600, "long": 1000, "detailed": 1500}
-    target_words = wc_map.get(word_count, 600)
+    target_words = max(50, min(5000, word_count))  # clamp to reasonable range
 
     if lang == "ar":
         wc_guide = f"اكتب حوالي {target_words} كلمة."

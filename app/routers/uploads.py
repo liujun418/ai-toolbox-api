@@ -499,7 +499,7 @@ async def upload_and_process(
             topic = ""
             keywords = ""
             tone = ""
-            word_count = "medium"
+            word_count = 600
             if prompt:
                 for part in prompt.split("|"):
                     part = part.strip()
@@ -510,7 +510,10 @@ async def upload_and_process(
                     elif part.lower().startswith("tone:"):
                         tone = part[5:].strip()
                     elif part.lower().startswith("wordcount:"):
-                        word_count = part[10:].strip().lower()
+                        try:
+                            word_count = int(part[10:].strip())
+                        except ValueError:
+                            word_count = 600
 
             if not topic:
                 raise HTTPException(status_code=400, detail="Topic is required for article generation")
