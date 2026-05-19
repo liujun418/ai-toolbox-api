@@ -681,33 +681,43 @@ async def run_object_removal(image_url: str, mask_url: str) -> str:
 
 # ── Article Generator ──────────────────────────────────────────────
 
-async def run_article_generation(topic: str, keywords: str = "", tone: str = "") -> str:
+async def run_article_generation(topic: str, keywords: str = "", tone: str = "", word_count: str = "medium") -> str:
     """Generate a structured article using Llama 3 70B."""
     lang = _detect_language(topic + " " + keywords)
 
+    # Word count guidance per language
+    wc_map = {"short": 300, "medium": 600, "long": 1000, "detailed": 1500}
+    target_words = wc_map.get(word_count, 600)
+
     if lang == "ar":
+        wc_guide = f"اكتب حوالي {target_words} كلمة."
         instruction = (
             f"اكتب مقالة متكاملة باللغة العربية حول: {topic}\n\n"
             f"{'الكلمات المفتاحية: ' + keywords if keywords else ''}\n"
-            f"{'النبرة: ' + tone if tone else ''}\n\n"
+            f"{'النبرة: ' + tone if tone else ''}\n"
+            f"{wc_guide}\n\n"
             "يجب أن تتضمن المقالة:\n"
             "1. عنوان جذاب\n2. مقدمة مشوقة\n3. 3-5 أقسام رئيسية (كل قسم بعنوان فرعي)\n4. خاتمة\n\n"
             "اكتب ككاتب محترف، وليس كذكاء اصطناعي. قدم محتوى قيماً وعملياً."
         )
     elif lang == "es":
+        wc_guide = f"Escribe aproximadamente {target_words} palabras."
         instruction = (
             f"Escribe un artículo completo en español sobre: {topic}\n\n"
             f"{'Palabras clave: ' + keywords if keywords else ''}\n"
-            f"{'Tono: ' + tone if tone else ''}\n\n"
+            f"{'Tono: ' + tone if tone else ''}\n"
+            f"{wc_guide}\n\n"
             "El artículo debe incluir:\n"
             "1. Título atractivo\n2. Introducción convincente\n3. 3-5 secciones principales (subtituladas)\n4. Conclusión\n\n"
             "Escribe como un escritor profesional, no como una IA. Proporciona contenido valioso."
         )
     else:
+        wc_guide = f"Write approximately {target_words} words."
         instruction = (
             f"Write a complete, well-structured article about: {topic}\n\n"
             f"{'Keywords: ' + keywords if keywords else ''}\n"
-            f"{'Tone: ' + tone if tone else ''}\n\n"
+            f"{'Tone: ' + tone if tone else ''}\n"
+            f"{wc_guide}\n\n"
             "The article must include:\n"
             "1. An engaging title (as a heading)\n"
             "2. A compelling introduction\n"

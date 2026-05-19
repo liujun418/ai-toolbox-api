@@ -499,6 +499,7 @@ async def upload_and_process(
             topic = ""
             keywords = ""
             tone = ""
+            word_count = "medium"
             if prompt:
                 for part in prompt.split("|"):
                     part = part.strip()
@@ -508,11 +509,13 @@ async def upload_and_process(
                         keywords = part[9:].strip()
                     elif part.lower().startswith("tone:"):
                         tone = part[5:].strip()
+                    elif part.lower().startswith("wordcount:"):
+                        word_count = part[10:].strip().lower()
 
             if not topic:
                 raise HTTPException(status_code=400, detail="Topic is required for article generation")
 
-            output = await run_article_generation(topic, keywords, tone)
+            output = await run_article_generation(topic, keywords, tone, word_count)
             result_content = output
             output_key = generate_download_key(user.id, task_id, "txt")
             await upload_file(output.encode("utf-8"), output_key, "text/plain")
