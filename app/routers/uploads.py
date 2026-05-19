@@ -521,15 +521,22 @@ async def upload_and_process(
             task.completed_at = datetime.now(UTC)
 
         elif tool_type == "text-to-speech":
-            text = (prompt or "").strip()
-            if not text:
+            raw = (prompt or "").strip()
+            if not raw:
                 raise HTTPException(status_code=400, detail="Please enter text to convert to speech.")
 
-            voice_category = (style or "female").lower()
+            # Parse VOICE:category|text format
+            voice_category = "female"
+            text = raw
+            if raw.startswith("VOICE:") and "|" in raw:
+                parts = raw.split("|", 1)
+                voice_category = parts[0][6:].strip().lower()
+                text = parts[1].strip()
+
             if voice_category not in TTS_VOICE_MAP:
                 voice_category = "female"
 
-            logger.info("TTS request: style=%s voice_category=%s voice_id=%s", style, voice_category, TTS_VOICE_MAP.get(voice_category))
+            logger.info("TTS request: voice_category=%s voice_id=%s text_len=%d", voice_category, TTS_VOICE_MAP.get(voice_category), len(text))
 
             audio_bytes = await run_tts(text, voice_category)
             output_key = generate_download_key(user.id, task_id, "mp3")
