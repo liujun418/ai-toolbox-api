@@ -10,6 +10,7 @@ from datetime import datetime, UTC
 from PIL import Image
 
 from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile, File
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.config import settings
