@@ -156,3 +156,49 @@ class SuggestionResponse(BaseModel):
 class SuggestionListResponse(BaseModel):
     suggestions: list[SuggestionResponse]
     total: int
+
+
+# --- Schemas for Blog Posts ---
+
+class BlogPostCreate(BaseModel):
+    slug: str
+    title: str
+    description: str
+    content: str
+    category: str
+    tags: str = ""  # comma-separated
+    related_tools: str | None = None  # comma-separated
+    published: bool = True
+
+
+class BlogPostUpdate(BaseModel):
+    slug: str | None = None
+    title: str | None = None
+    description: str | None = None
+    content: str | None = None
+    category: str | None = None
+    tags: str | None = None
+    related_tools: str | None = None
+    published: bool | None = None
+
+
+class BlogPostResponse(BaseModel):
+    id: str
+    slug: str
+    title: str
+    description: str
+    content: str
+    category: str
+    tags: str
+    related_tools: str | None = None
+    published: bool
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class BlogPostListResponse(BaseModel):
+    posts: list[BlogPostResponse]
+    total: int

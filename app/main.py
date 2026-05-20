@@ -59,6 +59,24 @@ def _ensure_db_columns():
                 ")"
             ))
 
+        # Ensure blog_posts table exists
+        if "blog_posts" not in inspector.get_table_names():
+            conn.execute(text(
+                "CREATE TABLE blog_posts ("
+                "id VARCHAR(36) PRIMARY KEY, "
+                "slug VARCHAR(255) UNIQUE NOT NULL, "
+                "title VARCHAR(500) NOT NULL, "
+                "description VARCHAR(1000) NOT NULL, "
+                "content TEXT NOT NULL, "
+                "category VARCHAR(100) NOT NULL, "
+                "tags TEXT DEFAULT '', "
+                "related_tools TEXT, "
+                "published BOOLEAN DEFAULT TRUE, "
+                "created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(), "
+                "updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()"
+                ")"
+            ))
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -100,6 +118,7 @@ app.include_router(tasks.router)
 app.include_router(uploads.router)
 app.include_router(payments.router)
 app.include_router(admin.router)
+app.include_router(admin.blog_public)
 app.include_router(lateral_thinking.router)
 app.include_router(bing_wallpaper.router)
 app.include_router(nasa_apod.router)

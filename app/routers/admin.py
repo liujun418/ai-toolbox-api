@@ -10,8 +10,8 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import User, Task, TaskStatus, Transaction, Suggestion
-from app.schemas import SuggestionResponse, SuggestionListResponse
+from app.models import User, Task, TaskStatus, Transaction, Suggestion, BlogPost
+from app.schemas import SuggestionResponse, SuggestionListResponse, BlogPostCreate, BlogPostUpdate, BlogPostResponse, BlogPostListResponse
 from app.schemas.admin import (
     AdminStatsResponse,
     AdminUserResponse,
@@ -436,3 +436,111 @@ def mark_suggestion_read(
     s.read = True
     db.commit()
     return {"message": "Marked as read"}
+
+
+# --- Blog Post Management ---
+
+# Public endpoint: list published blog posts
+blog_public = APIRouter(prefix="/api/blog", tags=["blog"])
+
+
+@blog_public.get("", response_model=BlogPostListResponse)
+def list_published_posts(
+    db: Session = Depends(get_db),
+):
+    posts = db.query(BlogPost).filter(BlogPost.published == True).order_by(BlogPost.created_at.desc()).all()
+    return BlogPostListResponse(posts=posts, total=len(posts))
+
+
+@blog_public.get("/{slug}", response_model=BlogPostResponse)
+def get_published_post(
+    slug: str,
+    db: Session = Depends(get_db),
+):
+    post = db.query(BlogPost).filter(BlogPost.slug == slug, BlogPost.published == True).first()
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+    return post
+
+
+# Admin endpoint: CRUD blog posts
+@router.get("/blog", response_model=BlogPostListResponse)
+def list_blog_posts(
+    admin: User = Depends(_get_admin_user),
+    db: Session = Depends(get_db),
+):
+    posts = db.query(BlogPost).order_by(BlogPost.created_at.desc()).all()
+    return BlogPostListResponse(posts=posts, total=len(posts))
+
+
+@router.get("/blog/{post_id}", response_model=BlogPostResponse)
+def get_blog_post(
+    post_id: str,
+    admin: User = Depends(_get_admin_user),
+    db: Session = Depends(get_db),
+):
+    post = db.query(BlogPost).filter(BlogPost.id == post_id).first()
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+    return post
+
+
+@router.post("/blog", response_model=BlogPostResponse)
+def create_blog_post(
+    body: BlogPostCreate,
+    admin: User = Depends(_get_admin_user),
+    db: Session = Depends(get_db),
+):
+    existing = db.query(BlogPost).filter(BlogPost.slug == body.slug).first()
+    if existing:
+        raise HTTPException(status_code=409, detail="Slug already exists")
+    post = BlogPost(
+        id=str(uuid.uuid4()),
+        slug=body.slug,
+        title=body.title,
+        description=body.description,
+        content=body.content,
+        category=body.category,
+        tags=body.tags,
+        related_tools=body.related_tools,
+        published=body.published,
+    )
+    db.add(post)
+    db.commit()
+    db.refresh(post)
+    logger.info("Blog post created: %s (%s)", post.title, post.id)
+    return post
+
+
+@router.patch("/blog/{post_id}", response_model=BlogPostResponse)
+def update_blog_post(
+    post_id: str,
+    body: BlogPostUpdate,
+    admin: User = Depends(_get_admin_user),
+    db: Session = Depends(get_db),
+):
+    post = db.query(BlogPost).filter(BlogPost.id == post_id).first()
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+    update_data = body.model_dump(exclude_unset=True)
+    for key, val in update_data.items():
+        setattr(post, key, val)
+    db.commit()
+    db.refresh(post)
+    logger.info("Blog post updated: %s (%s)", post.title, post.id)
+    return post
+
+
+@router.delete("/blog/{post_id}")
+def delete_blog_post(
+    post_id: str,
+    admin: User = Depends(_get_admin_user),
+    db: Session = Depends(get_db),
+):
+    post = db.query(BlogPost).filter(BlogPost.id == post_id).first()
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+    db.delete(post)
+    db.commit()
+    logger.info("Blog post deleted: %s (%s)", post.title, post.id)
+    return {"message": "Deleted"}
