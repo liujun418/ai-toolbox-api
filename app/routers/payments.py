@@ -1,10 +1,13 @@
 """Stripe payment integration for credit top-ups."""
 
 import json
+import logging
 import uuid
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+
+logger = logging.getLogger(__name__)
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -63,7 +66,8 @@ async def create_checkout_session(
         )
         return {"checkout_url": session.url}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Stripe checkout session creation failed")
+        raise HTTPException(status_code=500, detail="Payment service temporarily unavailable")
 
 
 @router.post("/create-subscription-session")
@@ -97,14 +101,22 @@ async def create_subscription_session(
         )
         return {"checkout_url": session.url}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Stripe subscription session creation failed")
+        raise HTTPException(status_code=500, detail="Payment service temporarily unavailable")
 
 
 def _add_credits_to_user(db: Session, user_id: str, credits_amount: float, price_id: str, payment_intent: str | None = None) -> dict:
-    """Helper: add credits and record transaction."""
+    """Helper: add credits and record transaction. Idempotent — skips duplicate stripe_payment_id."""
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         return {"status": "skipped", "reason": "user not found"}
+
+    if payment_intent:
+        existing = db.query(Transaction).filter(
+            Transaction.stripe_payment_id == payment_intent
+        ).first()
+        if existing:
+            return {"status": "skipped", "reason": "duplicate webhook"}
 
     user.credits += credits_amount
     is_sub = price_id in SUBSCRIPTION_PACKAGES
@@ -176,6 +188,6 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
         credits_amount = SUBSCRIPTION_PACKAGES.get(price_id, 0)
         if credits_amount <= 0:
             return {"status": "skipped", "reason": "unknown price_id"}
-        return _add_credits_to_user(db, user_id, credits_amount, price_id)
+        return _add_credits_to_user(db, user_id, credits_amount, price_id, invoice.get("id"))
 
     return {"status": "ignored"}

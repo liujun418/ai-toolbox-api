@@ -3,9 +3,12 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 
 from app.config import settings
 from app.database import engine
+from app.limiter import limiter
 from app.routers import auth, tasks, uploads, payments, admin, lateral_thinking, bing_wallpaper, nasa_apod, crypto_price, random_quote
 
 logging.basicConfig(
@@ -25,6 +28,7 @@ def _ensure_db_columns():
     needed = {
         "email_verified": "BOOLEAN DEFAULT FALSE",
         "verification_token": "VARCHAR(255)",
+        "verification_token_expires": "TIMESTAMP WITH TIME ZONE",
         "reset_token": "VARCHAR(255)",
         "reset_token_expires": "TIMESTAMP WITH TIME ZONE",
         "role": "VARCHAR(20) DEFAULT 'user'",
@@ -80,6 +84,14 @@ def _ensure_db_columns():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Validate critical secrets on startup
+    if settings.JWT_SECRET_KEY == "change-me-in-production":
+        raise RuntimeError("JWT_SECRET_KEY must be set to a secure value in production")
+    if not settings.STRIPE_SECRET_KEY:
+        logging.getLogger(__name__).warning("STRIPE_SECRET_KEY is not set — payments will fail")
+    if not settings.STRIPE_WEBHOOK_SECRET:
+        logging.getLogger(__name__).warning("STRIPE_WEBHOOK_SECRET is not set — webhooks will fail")
+
     _ensure_db_columns()
     try:
         from app.services.style_references import init_style_references
@@ -99,6 +111,9 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
 # CORS - allow frontend to access API
 app.add_middleware(
     CORSMiddleware,
@@ -111,6 +126,17 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Security headers (HSTS, X-Content-Type-Options, etc.)
+@app.middleware("http")
+async def add_security_headers(request, call_next):
+    response = await call_next(request)
+    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-XSS-Protection"] = "0"
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 # Register routers
 app.include_router(auth.router)

@@ -30,14 +30,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 
-def require_admin(user: User = Depends(lambda: None)) -> User:
-    """Dependency that enforces admin role. Must be used with get_current_user."""
-    if user.role != "admin":
-        logger.warning("Non-admin user %s attempted admin access", user.email)
-        raise HTTPException(status_code=403, detail="Admin access required")
-    return user
-
-
 def _admin_user(user: User) -> dict:
     return {
         "id": user.id,

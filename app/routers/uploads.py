@@ -881,8 +881,16 @@ async def upload_and_process(
             except Exception as e:
                 logger.warning("Postprocessing failed for task %s: %s (continuing with raw output)", task_id, str(e))
 
-        # Deduct credits
-        user.credits -= credits_needed
+        # Atomic credit deduction — prevents race condition from concurrent requests
+        result = db.execute(
+            text("UPDATE users SET credits = credits - :cost WHERE id = :uid AND credits >= :cost"),
+            {"cost": credits_needed, "uid": user.id},
+        )
+        if result.rowcount == 0:
+            raise HTTPException(
+                status_code=402,
+                detail=f"Not enough credits. Need {credits_needed}.",
+            )
 
         # Create transaction record
         transaction = Transaction(

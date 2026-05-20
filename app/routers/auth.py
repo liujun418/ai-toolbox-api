@@ -2,11 +2,12 @@ import hashlib
 import uuid
 from datetime import datetime, UTC, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.limiter import limiter
 from app.models import User, UserRole, Task, Transaction
 from app.schemas import (
     UserResponse, LoginRequest, RegisterRequest, TokenResponse,
@@ -38,7 +39,8 @@ def get_current_user(
 
 
 @router.post("/register", response_model=TokenResponse)
-def register(req: RegisterRequest, db: Session = Depends(get_db)):
+@limiter.limit("3/hour")
+def register(request: Request, req: RegisterRequest, db: Session = Depends(get_db)):
     existing = db.query(User).filter(User.email == req.email).first()
     if existing:
         raise HTTPException(status_code=409, detail="Email already registered")
@@ -53,6 +55,7 @@ def register(req: RegisterRequest, db: Session = Depends(get_db)):
         hashed_password=hash_password(req.password),
         role=UserRole.USER,
         verification_token=token,
+        verification_token_expires=datetime.now(UTC) + timedelta(hours=24),
         referral_code=referral_code,
     )
 
@@ -83,7 +86,8 @@ def register(req: RegisterRequest, db: Session = Depends(get_db)):
 
 
 @router.post("/login", response_model=TokenResponse)
-def login(req: LoginRequest, db: Session = Depends(get_db)):
+@limiter.limit("10/minute")
+def login(request: Request, req: LoginRequest, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == req.email).first()
     if not user or not verify_password(req.password, user.hashed_password):
         raise HTTPException(status_code=401, detail="Invalid email or password")
@@ -115,6 +119,7 @@ def update_profile(
         user.email_verified = False
         token = str(uuid.uuid4())
         user.verification_token = token
+        user.verification_token_expires = datetime.now(UTC) + timedelta(hours=24)
         try:
             send_verification_email(user.email, token)
         except Exception:
@@ -140,7 +145,8 @@ def change_password(
 
 
 @router.post("/forgot-password")
-def forgot_password(req: ForgotPasswordRequest, db: Session = Depends(get_db)):
+@limiter.limit("3/hour")
+def forgot_password(request: Request, req: ForgotPasswordRequest, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == req.email).first()
     if not user:
         # Don't reveal if email exists
@@ -179,6 +185,7 @@ def send_verification(user: User = Depends(get_current_user), db: Session = Depe
         raise HTTPException(status_code=400, detail="Email already verified")
     token = str(uuid.uuid4())
     user.verification_token = token
+    user.verification_token_expires = datetime.now(UTC) + timedelta(hours=24)
     db.commit()
     try:
         send_verification_email(user.email, token)
@@ -189,11 +196,15 @@ def send_verification(user: User = Depends(get_current_user), db: Session = Depe
 
 @router.get("/verify-email")
 def verify_email(token: str = Query(...), db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.verification_token == token).first()
+    user = db.query(User).filter(
+        User.verification_token == token,
+        User.verification_token_expires > datetime.now(UTC),
+    ).first()
     if not user:
-        raise HTTPException(status_code=400, detail="Invalid verification token")
+        raise HTTPException(status_code=400, detail="Invalid or expired verification token")
     user.email_verified = True
     user.verification_token = None
+    user.verification_token_expires = None
     db.commit()
     return {"message": "Email verified", "email": user.email}
 
