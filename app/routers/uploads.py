@@ -534,18 +534,18 @@ async def upload_and_process(
 
             # Parse VOICE:category|text format
             voice_category = "female"
-            text = raw
+            tts_text = raw
             if raw.startswith("VOICE:") and "|" in raw:
                 parts = raw.split("|", 1)
                 voice_category = parts[0][6:].strip().lower()
-                text = parts[1].strip()
+                tts_text = parts[1].strip()
 
             if voice_category not in TTS_VOICE_MAP:
                 voice_category = "female"
 
-            logger.info("TTS request: voice_category=%s voice_id=%s text_len=%d", voice_category, TTS_VOICE_MAP.get(voice_category), len(text))
+            logger.info("TTS request: voice_category=%s voice_id=%s text_len=%d", voice_category, TTS_VOICE_MAP.get(voice_category), len(tts_text))
 
-            audio_bytes = await run_tts(text, voice_category)
+            audio_bytes = await run_tts(tts_text, voice_category)
             output_key = generate_download_key(user.id, task_id, "mp3")
             await upload_file(audio_bytes, output_key, "audio/mpeg")
             task.output_file_url = generate_presigned_url(output_key, expires_in=3600)
