@@ -324,17 +324,33 @@ def _split_text(text: str, max_chars: int = 3000) -> list[str]:
     return chunks if chunks else [text]
 
 
-async def run_text_polish(text: str, mode: str = "polish") -> str:
+async def run_text_polish(text: str, mode: str = "polish", output_lang: str = "auto") -> str:
     """Polish, rewrite, shorten, expand, or restyle text using Llama 3 70B.
 
     Modes: polish, rewrite, shorten, expand, academic, business
-    Auto-detects English, Spanish, or Arabic for language-specific optimization.
+    output_lang: "auto" to detect from input, or language code (en/es/ar/fr/de/zh/ja/ko/pt/ru)
     Supports long text via paragraph-boundary chunking.
     """
-    lang = _detect_language(text)
+    input_lang = _detect_language(text)
+    effective_lang = input_lang if output_lang == "auto" else output_lang
+
+    # ── Language-specific output instruction prepended to system prompt ──
+    _LANG_INSTRUCTIONS = {
+        "en": "Write your response in English.",
+        "es": "Escribe tu respuesta en español.",
+        "ar": "اكتب ردك باللغة العربية.",
+        "fr": "Écris ta réponse en français.",
+        "de": "Schreibe deine Antwort auf Deutsch.",
+        "zh": "用中文写你的回答。",
+        "ja": "日本語で回答を書いてください。",
+        "ko": "한국어로 답변을 작성하세요.",
+        "pt": "Escreva sua resposta em português.",
+        "ru": "Напишите ответ на русском языке.",
+    }
+    lang_instruction = _LANG_INSTRUCTIONS.get(effective_lang, _LANG_INSTRUCTIONS["en"])
 
     # ── Mode instructions per language ──
-    if lang == 'ar':
+    if effective_lang == 'ar':
         anti_ai = "اكتب كمتحدث أصلي للعربية، وليس كذكاء اصطناعي. تجنب العبارات النمطية مثل 'من الجدير بالذكر' و'في الختام' و'أولاً ثانياً ثالثاً'. تجنب الحشو المفرط والانتقالات الآلية. اكتب بشكل طبيعي."
         mode_prompts = {
             "polish": f"صحح القواعد النحوية والإملائية وحسّن تدفق الجمل مع الحفاظ على المعنى والنبرة الأصلية. {anti_ai} أعد فقط النص المنقح، بدون أي تفسيرات.",
@@ -344,7 +360,7 @@ async def run_text_polish(text: str, mode: str = "polish") -> str:
             "academic": f"حوّل إلى أسلوب أكاديمي رسمي: منطق دقيق، مفردات متخصصة، تركيب مناسب، بدون تعابير عامية. حافظ على الحجج الأصلية. {anti_ai} أعد فقط النص المعاد كتابته، بدون أي تفسيرات.",
             "business": f"حوّل إلى أسلوب تواصل مهني: موجز، مهذب، موجه نحو العمل. مناسب للرسائل والتقارير والعروض. {anti_ai} أعد فقط النص المعاد كتابته، بدون أي تفسيرات.",
         }
-    elif lang == 'es':
+    elif effective_lang == 'es':
         anti_ai = "Escribe como un hablante nativo de español, no como una IA. Evita frases formulaicas como 'es digno de mención', 'en conclusión', 'en primer lugar, en segundo lugar'. Evita los rellenos excesivos y las transiciones robóticas. Escribe con naturalidad."
         mode_prompts = {
             "polish": f"Corrige la gramática, ortografía y mejora la fluidez de las oraciones manteniendo el significado y tono original. {anti_ai} Devuelve solo el texto mejorado, sin explicaciones.",
@@ -366,6 +382,7 @@ async def run_text_polish(text: str, mode: str = "polish") -> str:
         }
 
     instruction = mode_prompts.get(mode, mode_prompts["polish"])
+    instruction = f"{lang_instruction}\n\n{instruction}"
 
     # ── Long text: chunk at paragraph boundaries ──
     chunks = _split_text(text)

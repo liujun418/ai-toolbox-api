@@ -479,16 +479,27 @@ async def upload_and_process(
 
         elif tool_type == "text-polish":
             mode = "polish"
+            output_lang = "auto"
             text_content = ""
             if prompt:
-                mode_part, _, text_part = prompt.partition(". Text: ")
-                mode = mode_part.replace("Mode: ", "").strip().lower()
-                text_content = text_part
+                # Parse "Mode: polish. Language: fr. Text: some text"
+                mode_text_part = prompt
+                if ". Language: " in prompt:
+                    before_lang, _, rest = prompt.partition(". Language: ")
+                    mode_text_part = before_lang
+                    lang_part, _, text_part = rest.partition(". Text: ")
+                    output_lang = lang_part.strip().lower()
+                    text_content = text_part
+                else:
+                    # Backward compat: "Mode: polish. Text: some text"
+                    mode_part, _, text_part = prompt.partition(". Text: ")
+                    text_content = text_part
+                mode = mode_text_part.replace("Mode: ", "").strip().lower()
 
             if not text_content:
                 text_content = file_bytes.decode("utf-8", errors="replace")
 
-            output = await run_text_polish(text_content, mode)
+            output = await run_text_polish(text_content, mode, output_lang)
             result_content = output
             output_key = generate_download_key(user.id, task_id, "txt")
             await upload_file(output.encode("utf-8"), output_key, "text/plain")
